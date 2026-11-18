@@ -3,15 +3,17 @@
 An offline orbital mechanics sandbox and mission designer. Runs entirely in the browser,
 needs no account, no server and no network at runtime.
 
-**Status: in development.** The physics core is complete and tested (254 unit tests); the 3D
-application shell runs with scenario loading, mouse camera control and time controls.
-Spacecraft modelling, maneuver nodes and mission planning UI are not built yet. See `STATE.md`
-for what actually runs today and `PLAN.md` for the milestone backlog.
+**Status: in development.** The physics core is complete and tested (367 unit tests); the 3D
+application shell runs with scenario loading, mouse camera control, time controls and a working
+mission layer — a spacecraft flies a planned path drawn in the view, with maneuver nodes and a
+delta-v budget. The node _editor_ (add/edit/delete) and mission planning UI are not built yet.
+See `STATE.md` for what actually runs today and `PLAN.md` for the milestone backlog.
 
 ## What works today
 
-The app: a 3D solar-system view with a draggable, zoomable camera, three bundled scenarios, a
-warp clock from 1× to 10⁷×, and an inspector.
+The app: a 3D solar-system view with a draggable, zoomable camera, four bundled scenarios, a
+warp clock from 1× to 10⁷×, an inspector, and a mission panel showing a craft's trajectory,
+altitude and delta-v budget as the clock advances.
 
 The pure physics core, as a library under `src/core`:
 
@@ -25,6 +27,10 @@ The pure physics core, as a library under `src/core`:
 - Hohmann, bi-elliptic and plane-change transfers
 - Lambert's problem, single revolution
 
+The `src/sim` layer on top of it: the warp clock, the simulation state, impulsive maneuvers in
+the local orbital frame, and trajectory propagation with per-burn segments and delta-v
+accounting.
+
 To try it:
 
 ```
@@ -35,8 +41,8 @@ npm run dev        # http://localhost:5183
 To check it:
 
 ```
-npm run verify     # typecheck + lint + 254 unit tests + build
-npm run test:e2e   # 12 Playwright tests against the real app
+npm run verify     # typecheck + lint + 367 unit tests + build
+npm run test:e2e   # 17 Playwright tests against the real app
 ```
 
 ## Stack
@@ -53,8 +59,8 @@ convention, so the boundary cannot quietly erode (ADR-0001).
 | Command             | What it does                               |
 | ------------------- | ------------------------------------------ |
 | `npm run dev`       | Vite dev server on http://localhost:5183   |
-| `npm test`          | unit tests (254)                           |
-| `npm run test:e2e`  | Playwright end-to-end tests (12)           |
+| `npm test`          | unit tests (367)                           |
+| `npm run test:e2e`  | Playwright end-to-end tests (17)           |
 | `npm run typecheck` | `tsc` with strict settings                 |
 | `npm run lint`      | ESLint, including the core-purity boundary |
 | `npm run build`     | typecheck + production build               |

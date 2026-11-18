@@ -13,6 +13,7 @@
 import type { BodyId } from '../core/ephemeris/solarSystem.js';
 import type { RadialMode } from '../render/scale.js';
 import type { Warp } from '../sim/clock.js';
+import type { CraftSpec } from '../sim/craft.js';
 
 /** Bump only for a breaking change. Readers must reject versions they do not know. */
 export const SCENARIO_SCHEMA_VERSION = 1;
@@ -54,4 +55,13 @@ export interface Scenario {
   /** Body selected and framed when the scenario opens. */
   readonly focus: BodyId;
   readonly view: ScenarioView;
+  /**
+   * Optional mission: a spacecraft and the span it is planned over.
+   *
+   * Still data, and still no free state vector: the craft is an orbit parameterisation
+   * (altitude, inclination, phase) resolved by `craftFromSpec`, so a scenario cannot carry a
+   * state that contradicts its own description. `craft.horizonSeconds` is also the span that
+   * gets drawn — one number, so the picture cannot disagree with the plan.
+   */
+  readonly mission?: CraftSpec;
 }

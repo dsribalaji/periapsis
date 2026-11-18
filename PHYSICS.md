@@ -424,3 +424,77 @@ success. See DECISIONS D-008.
   radiation pressure. For LEO over long spans these omissions dominate; the UI says so.
 - **Element precision near apsides** is capped at ~1.5e-8 relative by the conditioning of
   the true anomaly, as described in §2.1.
+
+## 10. Display conventions and what they cost
+
+Physics is in metres and an inertial frame. The view is neither, and every difference is
+deliberate. This section records the three conversions so a number on screen can be traced
+back to the model that produced it.
+
+### 10.1 Frame: physics to scene
+
+`(x, y, z)_physics → (x, z, −y)_scene`. Physics has +z out of the ecliptic; the scene uses
++y up because that is what a camera expects. This is a rotation, not a reflection: it
+preserves handedness, so an orbit that is prograde in physics still looks prograde. Defined
+once in `scale.ts` (`toScene`, `scaleOffset`) and once in `orbit/elements.ts`
+(`localOrbitalFrame`) — nowhere else.
+
+### 10.2 Trajectories are drawn body-fixed at the scenario epoch
+
+A propagated trajectory is heliocentric. It is drawn as offsets against the central body's
+position **at the scenario epoch**, with the resulting group anchored to that body's live
+scene position.
+
+**Why not heliocentrically:** Earth travels about 25 of its own radii during one LEO
+revolution. Drawn inertially, a 550 km orbit would be smeared off the planet into a spiral —
+a picture of the Sun-centred path, which is not the thing anyone is looking at. Anchoring to
+the body is what makes "the orbit" look like an orbit.
+
+**What it costs:** a craft that genuinely leaves its central body (a heliocentric transfer)
+is drawn as a curve attached to that body rather than as a path through the solar system.
+Chopping the anchor at the SOI boundary would show the curve correctly for a moment and then
+jump it; in v1 the honest description is that the drawn line is body-relative, and the
+mission panel reports heliocentric-crossing facts (impact, apoapsis) as numbers. Recorded as
+a limitation rather than a plan.
+
+### 10.3 Scale: trajectories reuse the body's own exaggeration
+
+Body radii are cube-root compressed while positions are linear (§ ARCHITECTURE, `scale.ts`),
+so the two differ by about 282× for Earth. A 400 km orbit at the linear scale is 2.7e-3
+scene units — under a pixel, and inside Earth's 1.2-unit drawn mesh.
+
+Trajectory offsets therefore use `bodyRelativeScale(bodyId, radiusM)` = drawn radius / true
+radius, in scene units per metre. The consequences, all of which are correct _about that one
+body_:
+
+| Feature           | True ratio to Earth's radius | Drawn ratio |
+| ----------------- | ---------------------------- | ----------- |
+| 400 km LEO        | 1.063                        | 1.063       |
+| GEO (35,786 km)   | 6.61                         | 6.61        |
+| Moon (384,400 km) | 60.3                         | 60.3        |
+
+So the local geometry is right, but it is **not** to scale against the heliocentric layout:
+the Moon is drawn at 60 Earth-drawn-radii = 72 units while its real scene position is about
+0.03 units from Earth on the linear layout. A trajectory and the body it orbits therefore
+share a scale, and nothing else does. This is the same compromise the body radii already
+make, extended to one more object, and it is stated in the UI caveat.
+
+### 10.4 Inclination datum
+
+Orbit inclinations are measured from the **ecliptic** (the xy plane), not Earth's equator,
+which is tilted 23.4° from it. A scenario quoting "550 km at 53°" is describing a 53° ecliptic
+inclination; the real ISS flies 51.6° to the equator, which in this model's datum would be a
+different number. Not corrected in v1: doing it properly means carrying Earth's obliquity and
+a body-fixed frame, which arrives with the ground track in M6.
+
+### 10.5 Tolerances attached to the display layer
+
+These are geometric identities, not approximations, so they are asserted tightly:
+
+- **A point one body radius out lands exactly on the drawn radius** (1e-6 scene units): the
+  frame's scale factor is defined as drawn radius divided by true radius.
+- **The ratio of two orbital radii is preserved** to 1e-6 relative, because the mapping is a
+  single multiply.
+- **Segment times are strictly ascending**, so "already flown" is always a prefix and
+  `drawRange` can encode it. A mid-path envelope clip drops segments but does not reorder
+  them.

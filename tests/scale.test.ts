@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bodyRelativeScale,
   displayRadius,
   displayRadiusFor,
+  scaleOffset,
   toScene,
   radialUnits,
   scalePosition,
@@ -10,6 +12,7 @@ import {
   MIN_DISPLAY_RADIUS,
 } from '../src/render/scale.js';
 import { AU_M, RADIUS } from '../src/core/constants.js';
+import { BODIES } from '../src/core/ephemeris/solarSystem.js';
 
 describe('scene scale', () => {
   it('puts one AU at the chosen unit distance', () => {
@@ -154,5 +157,40 @@ describe('radial mapping', () => {
     }
     const first = radii[0]!;
     for (const r of radii) expect(r).toBeCloseTo(first, 9);
+  });
+});
+
+describe('body-relative scaling', () => {
+  it('exaggerates offsets exactly as much as the body itself is drawn', () => {
+    const s = bodyRelativeScale('earth', BODIES.earth.radius);
+    // Earth is drawn at 1.2 units for a 6371 km radius, so one true radius becomes 1.2 units.
+    expect(s * BODIES.earth.radius).toBeCloseTo(displayRadiusFor('earth', BODIES.earth.radius), 9);
+    // The exaggeration over the plain linear scale is the drawn radius over the true one.
+    expect(s).toBeCloseTo(displayRadiusFor('earth', BODIES.earth.radius) / BODIES.earth.radius, 9);
+    expect(s / UNITS_PER_M).toBeGreaterThan(200);
+  });
+
+  it('puts a 400 km orbit just outside the drawn surface, not inside it', () => {
+    const s = bodyRelativeScale('earth', BODIES.earth.radius);
+    const drawnRadius = displayRadiusFor('earth', BODIES.earth.radius);
+    const orbitRadius = (BODIES.earth.radius + 400e3) * s;
+    expect(orbitRadius).toBeGreaterThan(drawnRadius);
+    // Above the surface, but only slightly: 400 km on a 6371 km body is 6%.
+    expect(orbitRadius).toBeLessThan(drawnRadius * 1.1);
+  });
+
+  it('preserves ratios of distance from the same body', () => {
+    const s = bodyRelativeScale('earth', BODIES.earth.radius);
+    const leo = (BODIES.earth.radius + 400e3) * s;
+    const geo = 42164e3 * s;
+    // GEO is 42164/6771 = 6.2 LEO radii out, and must stay so on screen.
+    expect(geo / leo).toBeCloseTo(42164e3 / (BODIES.earth.radius + 400e3), 9);
+  });
+
+  it('keeps the scene frame convention for offsets', () => {
+    const [x, y, z] = scaleOffset(1, 2, 3, 10);
+    expect(x).toBeCloseTo(10, 12);
+    expect(y).toBeCloseTo(30, 12);
+    expect(z).toBeCloseTo(-20, 12);
   });
 });

@@ -29,6 +29,38 @@ export interface BodyVisual {
   readonly radiusUnits: number;
 }
 
+/**
+ * A trajectory to draw, already converted to body-centred scene units.
+ *
+ * Conversion and interpolation happen in `trajectoryLines.ts` because they are pure
+ * functions worth testing on their own; this module only owns the Three.js objects.
+ * `centralBody` identifies which body's scene position the line hangs off, so it follows
+ * that body as it moves.
+ *
+ * Points are drawn as disjoint vertex pairs in time order, so the flown part is always a
+ * prefix and highlighting it is one `drawRange` call.
+ */
+export interface SceneTrajectory {
+  readonly id: string;
+  readonly centralBody: BodyId;
+  /** Vertex pairs in body-centred scene units, six floats per segment. */
+  readonly positions: Float32Array;
+  readonly color: number;
+  /** Segments ending at or before this many entries are drawn dimmer, as already flown. */
+  readonly flownSegments: number;
+}
+
+/** One drawn trajectory: a single segment set plus the craft marker. */
+interface TrajectoryVisual {
+  readonly centralBody: BodyId;
+  readonly group: THREE.Group;
+  readonly future: THREE.LineSegments;
+  readonly flown: THREE.LineSegments;
+  readonly marker: THREE.Mesh;
+  /** Held explicitly so disposal does not have to narrow `Object3D.material`'s union type. */
+  readonly materials: readonly THREE.Material[];
+}
+
 export interface SceneCallbacks {
   /** Called with the body under the pointer, or null when nothing is hovered. */
   readonly onHover?: (id: BodyId | null) => void;
@@ -68,6 +100,10 @@ export class SolarSystemScene {
   /** Latest scene-space position of each body, for framing and picking. */
   private readonly scenePositions = new Map<BodyId, THREE.Vector3>();
   private readonly orbitRings: THREE.Line[] = [];
+  /** Drawn trajectories, keyed by id. */
+  private readonly trajectories = new Map<string, TrajectoryVisual>();
+  /** Visible trajectory marker geometry, shared by every craft. */
+  private readonly craftGeometry = new THREE.SphereGeometry(1, 12, 8);
   /** Pointer-drag state, or null when not dragging. */
   private drag: { lastX: number; lastY: number; moved: number } | null = null;
   /** Set after a drag so the trailing click does not reselect. */
@@ -261,6 +297,140 @@ export class SolarSystemScene {
       // Keep a body's scene position for framing.
       this.scenePositions.set(id, new THREE.Vector3(x, y, z));
     }
+    // Trajectories hang off their central body's position, so they move when it does.
+    this.syncTrajectoryPositions();
+  }
+
+  /**
+   * Replaces the drawn set of trajectories.
+   *
+   * Geometry rebuilds on every call: a trajectory refresh follows a scenario switch or a UI
+   * refresh, not a frame, and rebuilding is far simpler than diffing vertex counts.
+   */
+  setTrajectories(trajectories: readonly SceneTrajectory[]): void {
+    const seen = new Set<string>();
+
+    for (const t of trajectories) {
+      seen.add(t.id);
+      const existing = this.trajectories.get(t.id);
+      if (existing) {
+        this.disposeTrajectory(existing);
+        this.trajectories.delete(t.id);
+      }
+      this.trajectories.set(t.id, this.buildTrajectory(t));
+    }
+
+    for (const [id, visual] of [...this.trajectories]) {
+      if (seen.has(id)) continue;
+      this.disposeTrajectory(visual);
+      this.trajectories.delete(id);
+    }
+    this.syncTrajectoryPositions();
+  }
+
+  private buildTrajectory(t: SceneTrajectory): TrajectoryVisual {
+    const group = new THREE.Group();
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(t.positions, 3));
+
+    // Two objects sharing one geometry, split by drawRange: the flown part is drawn dimmer
+    // so the craft's current position reads at a glance, and the split costs no extra vertex
+    // data. Both must be transparent with depthWrite off, or the line hides the planets.
+    const futureMaterial = new THREE.LineBasicMaterial({
+      color: t.color,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    });
+    const flownMaterial = new THREE.LineBasicMaterial({
+      color: new THREE.Color(t.color).multiplyScalar(0.42),
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    });
+
+    const future = new THREE.LineSegments(geometry, futureMaterial);
+    const flown = new THREE.LineSegments(geometry, flownMaterial);
+    // A trajectory is an overlay, not scenery: without this a line passing behind a planet
+    // disappears, which reads as a gap rather than as occlusion.
+    future.renderOrder = 2;
+    flown.renderOrder = 2;
+    group.add(flown);
+    group.add(future);
+
+    const markerMaterial = new THREE.MeshBasicMaterial({ color: t.color });
+    const marker = new THREE.Mesh(this.craftGeometry, markerMaterial);
+    // Fixed screen size for the craft: it is a symbol, not a body, and a 5 m satellite
+    // scaled honestly would be invisible.
+    marker.scale.setScalar(0.9);
+    marker.renderOrder = 3;
+    marker.visible = false;
+    group.add(marker);
+
+    this.scene.add(group);
+    const visual: TrajectoryVisual = {
+      centralBody: t.centralBody,
+      group,
+      future,
+      flown,
+      marker,
+      materials: [futureMaterial, flownMaterial, markerMaterial],
+    };
+    this.applyFlownCount(visual, t.flownSegments);
+    return visual;
+  }
+
+  /** Splits the shared geometry at a segment boundary: `drawRange` counts vertices. */
+  private applyFlownCount(visual: TrajectoryVisual, flownSegments: number): void {
+    const attribute = visual.future.geometry.getAttribute('position');
+    const totalVertices = attribute.count;
+    const flownVertices = Math.min(totalVertices, Math.max(0, flownSegments) * 2);
+    visual.flown.geometry.setDrawRange(0, flownVertices);
+    visual.future.geometry.setDrawRange(flownVertices, totalVertices - flownVertices);
+  }
+
+  /** Updates only the flown/future split, without rebuilding geometry. */
+  setTrajectoryProgress(id: string, flownSegments: number): void {
+    const visual = this.trajectories.get(id);
+    if (visual) this.applyFlownCount(visual, flownSegments);
+  }
+
+  /**
+   * Moves a trajectory's craft marker to a body-centred scene position, or hides it.
+   *
+   * Separate from `setTrajectories` because the marker moves every UI tick while the path
+   * changes only when a node or the horizon changes.
+   */
+  setTrajectoryMarker(id: string, position: { x: number; y: number; z: number } | null): void {
+    const marker = this.trajectories.get(id)?.marker;
+    if (!marker) return;
+    if (!position) {
+      marker.visible = false;
+      return;
+    }
+    marker.visible = true;
+    marker.position.set(position.x, position.y, position.z);
+  }
+
+  /**
+   * Places every trajectory at its central body's current scene position.
+   *
+   * One group per trajectory, positioned as a whole, so moving a body is a single
+   * `position.set` rather than rewriting thousands of vertices per frame.
+   */
+  private syncTrajectoryPositions(): void {
+    for (const visual of this.trajectories.values()) {
+      const anchor = this.scenePositions.get(visual.centralBody);
+      if (anchor) visual.group.position.copy(anchor);
+    }
+  }
+
+  private disposeTrajectory(visual: TrajectoryVisual): void {
+    this.scene.remove(visual.group);
+    // Both line objects share one geometry, so it is disposed once. The marker geometry is
+    // shared between crafts and outlives every trajectory.
+    visual.future.geometry.dispose();
+    for (const material of visual.materials) material.dispose();
   }
 
   /** Switches between the honest linear layout and the whole-system compressed one. */
@@ -484,6 +654,11 @@ export class SolarSystemScene {
     this.renderer.domElement.removeEventListener('click', this.handleClick);
     this.renderer.domElement.removeEventListener('wheel', this.handleWheel);
 
+    // Drawn trajectories own a line geometry and three materials that the mesh traversal below
+    // would miss: `Line`/`LineSegments` are not `Mesh`, so they get their own pass.
+    for (const visual of this.trajectories.values()) this.disposeTrajectory(visual);
+    this.trajectories.clear();
+
     this.scene.traverse((obj) => {
       if (obj instanceof THREE.Mesh || obj instanceof THREE.Points) {
         obj.geometry.dispose();
@@ -495,6 +670,7 @@ export class SolarSystemScene {
         obj.material.dispose();
       }
     });
+    this.craftGeometry.dispose();
 
     this.renderer.dispose();
     this.renderer.domElement.remove();

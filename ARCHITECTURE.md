@@ -66,11 +66,16 @@ stated in the module header and each is covered by a test.
 
 ### `src/scenarios` — data, validated
 
-A scenario is a starting point: epoch, start warp, focus body, camera framing. It carries no
-orbital state, so it can never contradict the ephemeris. `validate.ts` checks structure and
-returns a list of `{path, message}` issues rather than throwing, which is what an import error
-report needs. `catalogue.ts` holds the three bundled scenarios and validates them at module
-load, so a malformed built-in fails immediately instead of half-loading the app.
+A scenario is a starting point: epoch, start warp, focus body, camera framing, and optionally a
+mission. It carries no orbital state, so it can never contradict the ephemeris. `validate.ts`
+checks structure and returns a list of `{path, message}` issues rather than throwing, which is
+what an import error report needs. `catalogue.ts` holds the four bundled scenarios and validates
+them at module load, so a malformed built-in fails immediately instead of half-loading the app.
+
+The mission field follows the same principle one level down: a spacecraft is an orbit
+_parameterisation_ (central body, altitude, inclination, phase) resolved by `craftFromSpec`, not a
+position/velocity pair. "550 km at 53°" is a claim a reader can check; `r = (6771000, 0, 0)` is
+not, and it can silently contradict the scenario that contains it.
 
 ### `src/render` — Three.js
 
@@ -79,18 +84,31 @@ positions use a linear or logarithmic radial mapping; body _radii_ use cube-root
 a satellite and a star are both visible. Both are documented in the module header and in the
 UI, because a compressed layout that is not labelled is a lie.
 
+`trajectoryLines.ts` is pure geometry: it converts a heliocentric trajectory into body-centred
+scene units using the same exaggeration the body's own radius uses, and emits disjoint vertex
+pairs in time order. Being pure, it is unit-tested directly rather than through a screenshot. The
+two frame-and-scale decisions it makes are recorded in PHYSICS.md §10 and D-014/D-015.
+
 `scene.ts` owns every Three.js object and is the only place that touches WebGL. `update()`
 receives positions and draws them; it never asks the simulation for anything. It also handles
-picking, camera orbit/zoom, and reports which bodies are off screen at the current framing.
+picking, camera orbit/zoom, the drawn trajectories and the craft marker.
 
 ### `src/ui` — React
 
-`App.tsx` owns React state and the animation-frame loop. Two structural rules:
+`App.tsx` owns React state and the animation-frame loop. Three structural rules:
 
 - The `Simulation` is created once through a lazy state initialiser, not a ref mutated during
   render. It is an external system, mutated only through callbacks.
 - Nothing is pushed into React state synchronously from an effect. Readouts are published at
   ~10 Hz from inside the frame callback, where updates from an external system belong.
+- The mission plan is derived with `useMemo` from the scenario, and its expensive half is not
+  recomputed per frame. The frame loop reads it through a ref that is synced in an effect —
+  writing a ref during render is what makes a ref and the committed tree disagree when React
+  discards a render, and the lint rule against it is correct.
+
+`missionView.ts` holds the mission view-model, split by cost: `buildMissionPlan` propagates once
+per scenario or node change, and `missionProgress` answers "where is it now, what has it spent"
+from the finished plan. `MissionPanel.tsx` is presentational and computes nothing.
 
 ## Frame convention
 

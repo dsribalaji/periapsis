@@ -18,7 +18,7 @@
  *   reconciliation for numbers no one can read that fast.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Simulation } from '../sim/simulation.js';
 import { formatDuration, WARP_STEPS, type Warp } from '../sim/clock.js';
 import { SolarSystemScene } from '../render/scene.js';
@@ -28,8 +28,26 @@ import type { BodyId } from '../core/ephemeris/solarSystem.js';
 import { AU_M } from '../core/constants.js';
 import { SCENARIOS, defaultScenario } from '../scenarios/catalogue.js';
 import type { Scenario } from '../scenarios/types.js';
+import {
+  buildMissionPlan,
+  missionProgress,
+  type MissionPlan,
+  type MissionProgress,
+} from './missionView.js';
+import { MissionPanel } from './MissionPanel.js';
 
 const INITIAL_SCENARIO = defaultScenario();
+
+/** Colour of the craft's path, distinct from every body colour. */
+const MISSION_COLOR = 0xff9f1c;
+
+function planFor(scenario: Scenario): MissionPlan | null {
+  return scenario.mission ? buildMissionPlan(scenario.mission, scenario.epochUtc) : null;
+}
+
+function progressFor(plan: MissionPlan | null, simSeconds: number): MissionProgress | null {
+  return plan ? missionProgress(plan, simSeconds) : null;
+}
 
 interface DisplayState {
   readonly simSeconds: number;
@@ -40,6 +58,8 @@ interface DisplayState {
   readonly offscreen: ReadonlySet<BodyId>;
   /** Set when WebGL could not start; the app still runs, it just cannot draw. */
   readonly webglError: string | null;
+  /** Where the craft is and what the plan has spent. Null without a mission. */
+  readonly progress: MissionProgress | null;
 }
 
 const INITIAL_DISPLAY: DisplayState = {
@@ -49,6 +69,7 @@ const INITIAL_DISPLAY: DisplayState = {
   distances: new Map(),
   offscreen: new Set<BodyId>(),
   webglError: null,
+  progress: null,
 };
 
 export function App(): React.JSX.Element {
@@ -64,6 +85,18 @@ export function App(): React.JSX.Element {
   const [warp, setWarpState] = useState<Warp>(INITIAL_SCENARIO.startWarp);
   const [scaleMode, setScaleMode] = useState<RadialMode>(INITIAL_SCENARIO.view.radialMode);
   const [display, setDisplay] = useState<DisplayState>(INITIAL_DISPLAY);
+
+  // The plan depends only on the mission and the epoch, so it is derived from the scenario
+  // rather than stored: one propagation per scenario, not per frame.
+  const plan = useMemo(() => planFor(scenario), [scenario]);
+
+  // Read inside the frame loop, which must not restart when the plan changes. Synced in an
+  // effect because a ref written during render is exactly what the linter forbids: it can
+  // leave the ref and the committed tree disagreeing if React discards a render.
+  const planRef = useRef<MissionPlan | null>(plan);
+  useEffect(() => {
+    planRef.current = plan;
+  }, [plan]);
 
   // Last non-paused warp, so Play resumes at the speed the user was using. Updated only
   // from event handlers, never from an effect.
@@ -97,6 +130,36 @@ export function App(): React.JSX.Element {
     [sim],
   );
 
+  /**
+   * Pushes the mission's path into the scene.
+   *
+   * Runs when the plan changes (scenario switch, node edit) and again after a radial-mode
+   * change, because both move the anchor. Progress is pushed separately, every UI tick.
+   */
+  const applyPlan = useCallback((next: MissionPlan | null) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (!next) {
+      scene.setTrajectories([]);
+      return;
+    }
+    scene.setTrajectories([
+      {
+        id: next.craftId,
+        centralBody: next.centralBody,
+        positions: next.frame.positions,
+        color: MISSION_COLOR,
+        flownSegments: 0,
+      },
+    ]);
+  }, []);
+
+  // Keep the scene's path in step with the plan. The stored camera wins: a mission scenario
+  // says how it wants to be framed, and re-framing here would override that on every switch.
+  useEffect(() => {
+    applyPlan(plan);
+  }, [applyPlan, plan]);
+
   const handleWarp = useCallback(
     (next: Warp) => {
       if (next !== 0) resumeWarpRef.current = next;
@@ -120,8 +183,11 @@ export function App(): React.JSX.Element {
       // the next simulation step.
       scene.updatePositions(sim.positions());
       scene.frameAll();
+      // The path is anchored to a body whose scene position just moved, and its own scale is
+      // unaffected by the radial mode, so only the anchor needs refreshing.
+      applyPlan(planRef.current);
     },
-    [sim],
+    [applyPlan, sim],
   );
 
   // Scene lifecycle. StrictMode mounts twice in development, so dispose must be complete.
@@ -170,6 +236,15 @@ export function App(): React.JSX.Element {
       scene?.updatePositions(positions);
       scene?.render();
 
+      // The craft advances every frame, not only on the UI tick: at warp 1000 a 10 Hz readout
+      // would leave the marker visibly stepping behind the clock.
+      const mission = planRef.current;
+      if (scene && mission) {
+        const p = missionProgress(mission, sim.simSeconds);
+        scene.setTrajectoryMarker(mission.craftId, p.position);
+        scene.setTrajectoryProgress(mission.craftId, p.flownSegments);
+      }
+
       sinceUiUpdate += elapsedMs;
       if (sinceUiUpdate >= 100) {
         sinceUiUpdate = 0;
@@ -185,6 +260,7 @@ export function App(): React.JSX.Element {
           distances,
           offscreen: scene ? scene.offScreenBodies() : new Set<BodyId>(),
           webglError: webglErrorRef.current,
+          progress: progressFor(mission, sim.simSeconds),
         });
       }
 
@@ -227,6 +303,7 @@ export function App(): React.JSX.Element {
   const offScreenNames = BODY_DISPLAY.filter((b) => display.offscreen.has(b.id)).map(
     (b) => b.label,
   );
+  const progress = display.progress;
 
   return (
     <div className="app">
@@ -279,6 +356,8 @@ export function App(): React.JSX.Element {
             </dd>
           </dl>
         </div>
+
+        {plan && <MissionPanel plan={plan} progress={progress} testid="mission" />}
 
         <div className="section">
           <h2>Bodies</h2>

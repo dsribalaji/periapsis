@@ -50,25 +50,33 @@ Milestone plan and iteration backlog for Periapsis. Status vocabulary: `pending`
 
 ## M4 — Spacecraft and maneuvers
 
-The model layer is complete and tested; the visual layer is not built yet, so the items stay
-open with their halves distinguished rather than checked off wholesale.
+The model and visual layers are built and tested. What is not built is the node _editor_: nodes
+are scenario data that the panel lists and marks as applied, but the user cannot yet add, edit or
+delete one. Those items stay unticked rather than being checked off on the strength of display.
 
 - [ ] M4.1 Spacecraft model + trajectory history/future lines
   - [x] `Spacecraft` (central body, relative state, budget, nodes) and `propagateTrajectory`
         with `twoBody` and `nbody` modes, split at every burn
-  - [ ] Rendered future line in the 3D view
+  - [x] Rendered future line in the 3D view, body-fixed and drawn over the bodies
+  - [x] Flown/future split by `drawRange` as the clock advances
 - [ ] M4.2 Maneuver nodes (time + prograde/normal/radial), edit/delete
   - [x] `Maneuver` in the local orbital frame or inertial, `applyManeuver`, deterministic
         ordering by (time, id)
-  - [ ] Node list UI with add/edit/delete
+  - [x] Node list UI: label, magnitude, time, frame, and an applied state
+  - [ ] Add/edit/delete controls
 - [ ] M4.3 Predicted post-burn trajectory refresh
   - [x] Post-burn segments are propagated, `afterBurn` points mark the discontinuity
-  - [ ] Refresh on node edit in the UI
+  - [ ] Refresh on node edit in the UI — depends on the editor in M4.2
 - [ ] M4.4 Delta-v budget per spacecraft
   - [x] `totalDeltaV`, `remainingDeltaV`, `usedDeltaV` per propagation (negative when over)
-  - [ ] Budget readout in the inspector
+  - [x] Budget/planned/spent/remaining readout, with an over-budget warning
 - [ ] M4.5 LEO constellation scenario
-- [ ] M4.6 Screenshots + review notes
+  - [x] `leo-raise`: one 550 km satellite with a planned raise node and a live readout
+  - [ ] A true multi-satellite constellation (needs more than one craft per scenario)
+- [x] M4.6 Screenshots + review notes — `screenshots/m4-leo-raise.png`, measured by
+      `scripts/inspect-screenshot.mjs` (1400x860, 4.8% non-background, 3,889 mission-colour
+      pixels). The agent cannot view images, so this is a measured check, not a visual one;
+      the e2e colour count is the primary evidence that the trajectory is drawn.
 
 ## M5 — Mission planning
 

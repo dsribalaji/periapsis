@@ -68,6 +68,13 @@ clock on screen advances" is an e2e test. The overlap is deliberately small.
 `src/ui` are covered by e2e instead: a line-coverage number for a WebGL scene measures that
 lines ran, not that anything was drawn.
 
+Note on screenshots: the agent building this cannot view images, so a screenshot is never
+evidence in itself. `scripts/inspect-screenshot.mjs <file>` decodes one and reports its
+dimensions, the fraction of non-background pixels, the number of distinct colour buckets and
+how many pixels match the mission colour, so a blank or trajectory-free frame fails loudly.
+The real evidence that drawing works is the e2e pixel-colour test, which runs against the live
+canvas.
+
 ## Adding a test
 
 - Physics or time behaviour → `tests/<module>.test.ts`, plus a `PHYSICS.md` entry if the test

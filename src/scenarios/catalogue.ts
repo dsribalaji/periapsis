@@ -66,6 +66,47 @@ const RAW: readonly Scenario[] = [
       centeredOn: 'focus',
     },
   },
+  {
+    schemaVersion: SCENARIO_SCHEMA_VERSION,
+    id: 'leo-raise',
+    name: 'LEO orbit raise',
+    description:
+      'A satellite in a 550 km orbit at 53 degrees, with one prograde raise node planned.',
+    epochUtc: '2026-11-18T12:00:00Z',
+    // Paused: a 550 km orbit laps in 96 minutes, and at warp 1000 that is 24 revolutions a
+    // minute. The point of this scenario is to read the node, so it opens still.
+    startWarp: 0,
+    focus: 'earth',
+    view: {
+      radialMode: 'linear',
+      azimuthRad: 1.2,
+      elevationRad: 0.55,
+      distanceUnits: 26,
+      centeredOn: 'focus',
+    },
+    mission: {
+      id: 'sat-a',
+      name: 'Constellation A',
+      centralBody: 'earth',
+      orbit: { altitudeM: 550e3, inclinationRad: (53 * Math.PI) / 180, phaseRad: 0 },
+      // A small budget: one raise plus margin. The plan below spends 62 m/s of it.
+      deltaVBudget: 120,
+      propagation: 'twoBody',
+      // Two revolutions, so the drawn arc closes and a full orbit is visible at once.
+      horizonSeconds: 11600,
+      maneuvers: [
+        {
+          id: 'raise-1',
+          timeSeconds: 2900,
+          a: 62,
+          b: 0,
+          c: 0,
+          frame: 'local',
+          label: 'Raise 62 m/s',
+        },
+      ],
+    },
+  },
 ];
 
 export const SCENARIOS: readonly Scenario[] = RAW.map((s) =>

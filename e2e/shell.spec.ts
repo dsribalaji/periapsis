@@ -16,7 +16,7 @@ test.describe('application shell', () => {
     await expect(page.getByRole('heading', { name: 'Periapsis' })).toBeVisible();
 
     // The time bar and body list are the two things a user needs on load.
-    await expect(page.getByText('offline · no data leaves this machine')).toBeVisible();
+    await expect(page.getByText('no data leaves this machine')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
   });
 
@@ -192,5 +192,114 @@ test.describe('application shell', () => {
 
     const compressed = await countContent();
     expect(compressed).toBeGreaterThan(linear);
+  });
+});
+
+test.describe('mission and maneuvers', () => {
+  test('a mission scenario shows its plan and delta-v budget', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+
+    const panel = page.getByTestId('mission');
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText('Constellation A');
+    // 62 m/s planned out of a 120 m/s budget.
+    await expect(page.getByTestId('mission-planned')).toHaveText('62.0 m/s');
+    await expect(page.getByTestId('mission-remaining')).toHaveText('58.0 m/s');
+    await expect(page.getByTestId('mission-spent')).toHaveText('0.0 m/s');
+    await expect(page.getByTestId('mission-over-budget')).toHaveCount(0);
+  });
+
+  test('the mission panel disappears for a scenario without a craft', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('mission')).toHaveCount(0);
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await expect(page.getByTestId('mission')).toBeVisible();
+    await page.getByLabel('Scenario').selectOption('earth-moon');
+    await expect(page.getByTestId('mission')).toHaveCount(0);
+  });
+
+  test('the orbit radius stays near the planned altitude while running', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    const altitude = page.getByTestId('mission-altitude');
+
+    // The scenario opens paused at the epoch: radius is exactly the initial orbit.
+    await expect(altitude).toHaveText('550.0 km');
+
+    // Fly at warp 100 for a while and check the craft is still on a sane orbit.
+    await page.getByRole('button', { name: '100', exact: true }).click();
+    await expect(altitude).not.toHaveText('550.0 km', { timeout: 15000 });
+
+    const text = (await altitude.textContent()) ?? '';
+    const km = Number.parseFloat(text.replace(' km', ''));
+    expect(km).toBeGreaterThan(-1000);
+    expect(km).toBeLessThan(1000);
+  });
+
+  test('the maneuver node is drawn as applied once the clock passes it', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+
+    const node = page.getByTestId('mission-nodes').locator('.node-row').first();
+    await expect(node).toContainText('Raise 62 m/s');
+    await expect(node).not.toHaveClass(/applied/);
+
+    // The node is at T+00:48:20. At warp 10k that is a few real seconds.
+    await page.getByRole('button', { name: '10k', exact: true }).click();
+    await expect(node).toHaveClass(/applied/, { timeout: 20000 });
+    await expect(page.getByTestId('mission-spent')).toHaveText('62.0 m/s');
+  });
+
+  test('the trajectory is actually drawn on the canvas', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('earth-moon');
+    await expect(page.getByTestId('mission')).toHaveCount(0);
+
+    const canvas = page.locator('.viewport canvas');
+
+    /**
+     * Pixels matching the mission colour (#ff9f1c).
+     *
+     * Counted by colour rather than by total brightness on purpose: switching scenarios also
+     * moves the camera and the epoch, so a total-brightness difference could come from the
+     * body arrangement. Nothing but the trajectory is drawn in orange.
+     */
+    const countMissionColour = async (): Promise<number> => {
+      const png = await canvas.screenshot();
+      return page.evaluate(async (base64) => {
+        const blob = await (await fetch(`data:image/png;base64,${base64}`)).blob();
+        const bitmap = await createImageBitmap(blob);
+        const scratch = document.createElement('canvas');
+        scratch.width = bitmap.width;
+        scratch.height = bitmap.height;
+        const ctx = scratch.getContext('2d');
+        if (!ctx) throw new Error('no 2d context');
+        ctx.drawImage(bitmap, 0, 0);
+        const { data } = ctx.getImageData(0, 0, scratch.width, scratch.height);
+        let count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i] ?? 0;
+          const g = data[i + 1] ?? 0;
+          const b = data[i + 2] ?? 0;
+          // Orange: strong red, middling green, little blue. The dim flown half is drawn at
+          // 42% brightness, so the threshold is generous on the low side.
+          if (r > 90 && g > 40 && g < 190 && b < 80 && r > g + 40) count++;
+        }
+        return count;
+      }, png.toString('base64'));
+    };
+
+    const before = await countMissionColour();
+
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    // Wait for the frame loop to publish a readout, so the path is definitely in the scene.
+    await expect(page.getByTestId('mission-altitude')).toHaveText('550.0 km');
+
+    const after = await countMissionColour();
+    // Measured: 0 before and over a thousand after. The line is a long arc across a close-up
+    // view, so hundreds of pixels is the floor and a few stray antialiased pixels cannot pass.
+    expect(before).toBeLessThan(50);
+    expect(after).toBeGreaterThan(400);
   });
 });

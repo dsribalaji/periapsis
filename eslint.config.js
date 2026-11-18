@@ -55,4 +55,21 @@ export default tseslint.config(
     files: ['tests/**/*.ts', 'e2e/**/*.ts', '*.config.ts'],
     rules: { 'no-restricted-globals': 'off', 'no-restricted-properties': 'off' },
   },
+  {
+    // Dev scripts run under Node but hand code to `page.evaluate`, which executes it in the
+    // browser. Both sets of globals are therefore legitimately in scope, and the file is not
+    // part of the app bundle.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        fetch: 'readonly',
+        document: 'readonly',
+        createImageBitmap: 'readonly',
+      },
+    },
+  },
 );

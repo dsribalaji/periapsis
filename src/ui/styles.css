@@ -276,6 +276,48 @@ select:focus-visible {
   padding: 1px 5px;
 }
 
+.node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.node-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border-left: 2px solid var(--panel-border);
+  font-size: 12px;
+}
+
+.node-row.applied {
+  border-left-color: var(--ok);
+}
+
+.node-row .node-label {
+  font-weight: 600;
+}
+
+.node-row .node-dv {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  text-align: right;
+}
+
+.node-row .node-time,
+.node-row .node-frame {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.node-row .node-frame {
+  text-align: right;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

@@ -13,6 +13,8 @@
 import { BODIES, type BodyId } from '../core/ephemeris/solarSystem.js';
 import { jdFromIsoUtc } from '../core/time/time.js';
 import { WARP_STEPS } from '../sim/clock.js';
+import type { CraftSpec } from '../sim/craft.js';
+import type { Maneuver, ManeuverFrame } from '../sim/maneuver.js';
 import { SCENARIO_SCHEMA_VERSION, type Scenario } from './types.js';
 
 export interface ScenarioIssue {
@@ -26,6 +28,8 @@ export type ValidationResult =
   | { readonly ok: false; readonly issues: readonly ScenarioIssue[] };
 
 const RADIAL_MODES = new Set(['linear', 'compressed']);
+const MANEUVER_FRAMES = new Set<ManeuverFrame>(['local', 'inertial']);
+const PROPAGATION_MODES = new Set(['twoBody', 'nbody']);
 
 function issue(path: string, message: string): ScenarioIssue {
   return { path, message };
@@ -49,6 +53,152 @@ function finiteNumber(v: unknown, path: string, issues: ScenarioIssue[]): number
     return null;
   }
   return v;
+}
+
+/**
+ * Validates an unknown value as a mission (spacecraft spec).
+ *
+ * Returns null and pushes issues when anything is wrong, so a bad mission can never reach
+ * `craftFromSpec` and produce a state nobody checked.
+ */
+function validateMission(input: unknown, issues: ScenarioIssue[]): CraftSpec | null {
+  if (input === undefined) return null;
+  if (!isRecord(input)) {
+    issues.push(issue('mission', 'must be an object when present'));
+    return null;
+  }
+
+  const before = issues.length;
+  const id = nonEmptyString(input['id'], 'mission.id', issues);
+  const name = nonEmptyString(input['name'], 'mission.name', issues);
+
+  const rawCentral = input['centralBody'];
+  let centralBody: BodyId | null = null;
+  if (typeof rawCentral !== 'string' || !(rawCentral in BODIES)) {
+    issues.push(issue('mission.centralBody', `must be one of ${Object.keys(BODIES).join(', ')}`));
+  } else {
+    centralBody = rawCentral as BodyId;
+  }
+
+  const rawOrbit = input['orbit'];
+  let orbit: CraftSpec['orbit'] | null = null;
+  if (!isRecord(rawOrbit)) {
+    issues.push(issue('mission.orbit', 'must be an object'));
+  } else {
+    const altitude = finiteNumber(rawOrbit['altitudeM'], 'mission.orbit.altitudeM', issues);
+    const inclination = finiteNumber(
+      rawOrbit['inclinationRad'],
+      'mission.orbit.inclinationRad',
+      issues,
+    );
+    const phase = finiteNumber(rawOrbit['phaseRad'], 'mission.orbit.phaseRad', issues);
+    if (altitude !== null && !(altitude > 0)) {
+      issues.push(
+        issue('mission.orbit.altitudeM', 'must be positive: the orbit must clear the surface'),
+      );
+    }
+    if (inclination !== null && !(inclination >= 0 && inclination <= Math.PI)) {
+      issues.push(issue('mission.orbit.inclinationRad', 'must be within [0, pi]'));
+    }
+    if (altitude !== null && inclination !== null && phase !== null && altitude > 0) {
+      orbit = { altitudeM: altitude, inclinationRad: inclination, phaseRad: phase };
+    }
+  }
+
+  const budget = finiteNumber(input['deltaVBudget'], 'mission.deltaVBudget', issues);
+  if (budget !== null && !(budget > 0)) {
+    issues.push(issue('mission.deltaVBudget', 'must be positive'));
+  }
+
+  const rawPropagation = input['propagation'];
+  if (typeof rawPropagation !== 'string' || !PROPAGATION_MODES.has(rawPropagation)) {
+    issues.push(issue('mission.propagation', "must be 'twoBody' or 'nbody'"));
+  }
+
+  const horizon = finiteNumber(input['horizonSeconds'], 'mission.horizonSeconds', issues);
+  if (horizon !== null && !(horizon > 0)) {
+    issues.push(issue('mission.horizonSeconds', 'must be positive'));
+  }
+
+  const rawManeuvers = input['maneuvers'];
+  let maneuvers: Maneuver[] | null = [];
+  if (rawManeuvers !== undefined && !Array.isArray(rawManeuvers)) {
+    issues.push(issue('mission.maneuvers', 'must be an array'));
+    maneuvers = null;
+  } else if (Array.isArray(rawManeuvers)) {
+    const parsed: Maneuver[] = [];
+    for (let i = 0; i < rawManeuvers.length; i++) {
+      const m = validateManeuver(rawManeuvers[i], `mission.maneuvers[${i}]`, issues);
+      if (m) parsed.push(m);
+      else maneuvers = null;
+    }
+    if (maneuvers !== null) maneuvers = parsed;
+  }
+
+  if (
+    issues.length > before ||
+    id === null ||
+    name === null ||
+    centralBody === null ||
+    orbit === null ||
+    budget === null ||
+    horizon === null ||
+    maneuvers === null ||
+    typeof rawPropagation !== 'string' ||
+    !PROPAGATION_MODES.has(rawPropagation)
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    centralBody,
+    orbit,
+    deltaVBudget: budget,
+    propagation: rawPropagation as CraftSpec['propagation'],
+    horizonSeconds: horizon,
+    maneuvers,
+  };
+}
+
+function validateManeuver(input: unknown, path: string, issues: ScenarioIssue[]): Maneuver | null {
+  if (!isRecord(input)) {
+    issues.push(issue(path, 'must be an object'));
+    return null;
+  }
+  const before = issues.length;
+  const id = nonEmptyString(input['id'], `${path}.id`, issues);
+  const time = finiteNumber(input['timeSeconds'], `${path}.timeSeconds`, issues);
+  const a = finiteNumber(input['a'], `${path}.a`, issues);
+  const b = finiteNumber(input['b'], `${path}.b`, issues);
+  const c = finiteNumber(input['c'], `${path}.c`, issues);
+
+  const rawFrame = input['frame'];
+  if (typeof rawFrame !== 'string' || !MANEUVER_FRAMES.has(rawFrame as ManeuverFrame)) {
+    issues.push(issue(`${path}.frame`, "must be 'local' or 'inertial'"));
+  }
+
+  const rawLabel = input['label'];
+  let label: string | undefined;
+  if (rawLabel !== undefined) {
+    if (typeof rawLabel !== 'string') issues.push(issue(`${path}.label`, 'must be a string'));
+    else label = rawLabel;
+  }
+
+  if (
+    issues.length > before ||
+    id === null ||
+    time === null ||
+    a === null ||
+    b === null ||
+    c === null ||
+    typeof rawFrame !== 'string' ||
+    !MANEUVER_FRAMES.has(rawFrame as ManeuverFrame)
+  ) {
+    return null;
+  }
+  return { id, timeSeconds: time, a, b, c, frame: rawFrame as ManeuverFrame, label };
 }
 
 /**
@@ -162,6 +312,8 @@ export function validateScenario(input: unknown): ValidationResult {
     }
   }
 
+  const mission = validateMission(input['mission'], issues);
+
   if (
     issues.length > 0 ||
     id === null ||
@@ -186,6 +338,7 @@ export function validateScenario(input: unknown): ValidationResult {
       startWarp,
       focus,
       view,
+      ...(mission ? { mission } : {}),
     },
   };
 }

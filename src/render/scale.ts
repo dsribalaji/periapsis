@@ -119,6 +119,35 @@ export function toScene(x: number, y: number, z: number): [number, number, numbe
 }
 
 /**
+ * Scene units per metre for an offset from a body's centre.
+ *
+ * This is the same compression the bodies themselves are drawn with, and it has to be,
+ * because the two scales are wildly different: at `UNITS_PER_M` an Earth radius is
+ * 4.3e-3 scene units while Earth is *drawn* at 1.2. A 400 km LEO orbit would therefore be
+ * drawn inside Earth's mesh and be invisible.
+ *
+ * Dividing the drawn radius by the true radius gives the exaggeration factor for that body
+ * (about 282 for Earth), already in scene units per metre. Applying it to the offset means a
+ * 400 km orbit sits just above Earth's drawn surface, a GEO orbit at 6.6 Earth radii sits at
+ * 6.6 drawn radii, and the Earth-Moon distance (~60 Earth radii) is 72 units — visible at the
+ * Earth-Moon camera distance. Relative geometry about one body is therefore correct; absolute
+ * distance across bodies is not, in exactly the way body radii are already not.
+ */
+export function bodyRelativeScale(bodyId: BodyId, bodyRadiusM: number): number {
+  return displayRadiusFor(bodyId, bodyRadiusM) / bodyRadiusM;
+}
+
+/** Scales a body-relative offset (metres) into scene units, keeping the frame convention. */
+export function scaleOffset(
+  x: number,
+  y: number,
+  z: number,
+  unitsPerMetre: number,
+): [number, number, number] {
+  return [x * unitsPerMetre, z * unitsPerMetre, -y * unitsPerMetre];
+}
+
+/**
  * Frame convention.
  *
  * Physics is right-handed with +z toward the ecliptic north pole, viewed from +z looking

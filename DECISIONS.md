@@ -147,3 +147,43 @@ changes the answer, and it draws a smooth curve through a velocity discontinuity
 exists. Splitting puts a vertex exactly at the node and makes `afterBurn` meaningful for a plot.
 Re-integrating from the epoch is quadratic in the number of burns and recomputes identical arcs;
 the incremental sweep recomputes nothing.
+
+## D-014 — A trajectory is drawn in the body-fixed frame at the scenario epoch
+
+**Choice:** `toLocalFrame` subtracts the central body's position at the epoch from every
+heliocentric sample, converts with the body's own exaggeration, and returns one group that the
+scene anchors at that body's live position.
+**Alternatives:** draw the trajectory heliocentrically in scene units; recompute body-relative
+offsets against the body's position at each sample's own time.
+**Why:** Earth moves about 25 of its own radii per LEO revolution, so a heliocentric drawing
+smears a 550 km orbit off the planet into a spiral — technically the true Sun-centred path and
+useless to look at. Offsets against the per-sample body position would need a vertex-by-vertex
+offset every frame once the body moves, and would still render a curved line that is not an
+orbit in any single frame. One epoch reference plus a group transform is a single
+`position.set` per frame. The cost — a genuinely escaping craft is drawn attached to its body —
+is recorded in PHYSICS.md §10.2 rather than left to be discovered.
+
+## D-015 — Trajectory geometry is disjoint vertex pairs, not a polyline
+
+**Choice:** `toLocalFrame` emits `LineSegments` data (six floats per segment) plus the end time
+of each segment; the scene draws it twice from one geometry, splitting with `drawRange`.
+**Alternatives:** a `Line`/`LineStrip` polyline plus a second geometry for the flown part; a
+per-vertex colour attribute.
+**Why:** duplicate vertices cost 2x the memory of a strip (a few hundred kB at the 4000-sample
+cap) and buy three things: a burn can split the line without a degenerate `NaN` vertex trick, an
+envelope clip can drop a point without joining the two sides, and the flown part is exactly a
+prefix of the segment list so highlighting it is one integer on the shared geometry rather than
+a rebuild. A per-vertex colour would also encode the split, but it moves the answer into the
+shader where it cannot be asserted by a unit test; `drawRange` counts are testable facts.
+
+## D-016 — Mission view-model is split by cost, not by concern
+
+**Choice:** `buildMissionPlan` (one propagation + geometry conversion) runs on a scenario or node
+change; `missionProgress` (a lookup against the finished plan) runs on every UI tick and every
+frame.
+**Alternatives:** one function that recomputes the plan whenever asked, memoised in React.
+**Why:** the difference is three orders of magnitude — milliseconds against microseconds — and
+the frame loop needs the cheap one at 60 Hz. The split also states the invariant explicitly:
+progress is derived from the plan and can never disagree with the drawn geometry, because both
+read the same `LocalFrameResult`. Memoising a single function would leave "which half is
+expensive" as folklore.

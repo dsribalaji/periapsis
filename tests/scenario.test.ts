@@ -189,6 +189,113 @@ describe('validateScenario', () => {
   });
 });
 
+describe('mission validation', () => {
+  const mission = {
+    id: 'sat',
+    name: 'Sat',
+    centralBody: 'earth',
+    orbit: { altitudeM: 550e3, inclinationRad: 0.9, phaseRad: 0 },
+    deltaVBudget: 120,
+    propagation: 'twoBody',
+    horizonSeconds: 11600,
+    maneuvers: [{ id: 'b1', timeSeconds: 2900, a: 62, b: 0, c: 0, frame: 'local', label: 'Raise' }],
+  };
+
+  it('accepts a mission and keeps its nodes', () => {
+    const r = validateScenario(withChange({ mission }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.scenario.mission?.maneuvers).toHaveLength(1);
+    expect(r.scenario.mission?.maneuvers[0]?.a).toBe(62);
+  });
+
+  it('omits the mission key entirely when absent', () => {
+    const r = validateScenario(valid);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect('mission' in r.scenario).toBe(false);
+  });
+
+  it('rejects a negative altitude with the field path', () => {
+    const r = validateScenario(
+      withChange({ mission: { ...mission, orbit: { ...mission.orbit, altitudeM: -1 } } }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.issues.map((i) => i.path)).toContain('mission.orbit.altitudeM');
+  });
+
+  it('rejects an inclination outside [0, pi]', () => {
+    const r = validateScenario(
+      withChange({ mission: { ...mission, orbit: { ...mission.orbit, inclinationRad: 4 } } }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.issues.map((i) => i.path)).toContain('mission.orbit.inclinationRad');
+  });
+
+  it('rejects an unknown central body', () => {
+    const r = validateScenario(withChange({ mission: { ...mission, centralBody: 'pluto' } }));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.issues.map((i) => i.path)).toContain('mission.centralBody');
+  });
+
+  it('rejects an unknown propagation mode', () => {
+    const r = validateScenario(withChange({ mission: { ...mission, propagation: 'magic' } }));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.issues.map((i) => i.path)).toContain('mission.propagation');
+  });
+
+  it('rejects a negative delta-v budget', () => {
+    const r = validateScenario(withChange({ mission: { ...mission, deltaVBudget: -5 } }));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.issues.map((i) => i.path)).toContain('mission.deltaVBudget');
+  });
+
+  it('rejects a non-object mission', () => {
+    const r = validateScenario(withChange({ mission: 'nope' }));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.issues.map((i) => i.path)).toContain('mission');
+  });
+
+  it('rejects a node with an unknown frame, naming its index', () => {
+    const r = validateScenario(
+      withChange({
+        mission: { ...mission, maneuvers: [{ ...mission.maneuvers[0], frame: 'sideways' }] },
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.issues.map((i) => i.path)).toContain('mission.maneuvers[0].frame');
+  });
+
+  it('rejects a node with a non-finite component', () => {
+    const r = validateScenario(
+      withChange({
+        mission: { ...mission, maneuvers: [{ ...mission.maneuvers[0], a: Infinity }] },
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.issues.map((i) => i.path)).toContain('mission.maneuvers[0].a');
+  });
+
+  it('drops a node label that is not a string rather than coercing it', () => {
+    const r = validateScenario(
+      withChange({
+        mission: { ...mission, maneuvers: [{ ...mission.maneuvers[0], label: 7 }] },
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.issues.map((i) => i.path)).toContain('mission.maneuvers[0].label');
+  });
+});
+
 describe('assertScenario', () => {
   it('returns the scenario when valid', () => {
     expect(assertScenario(valid, 'test scenario').id).toBe('test');
