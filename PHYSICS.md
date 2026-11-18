@@ -282,6 +282,60 @@ Three burns via an intermediate radius r_b > r₂. Beats Hohmann above a radius 
 
 Δv = 2v sin(θ/2). Checked at θ = 0 (0), θ = π/2 (v√2), θ = π (2v), all to 6 dp.
 
+### 7.4 Spacecraft trajectory with impulsive nodes
+
+A maneuver node is a pure velocity jump at one instant:
+
+**r⁺ = r⁻, v⁺ = v⁻ + Δv**
+
+Δv is expressed either in the local orbital frame (prograde, orbit normal, outward radial) or
+in the inertial frame. A local node is resolved against the state it is applied to, so the same
+"200 m/s prograde" produces a different inertial Δv at a different point on the orbit — which
+is the whole reason to express it locally.
+
+**The burn is applied in the central-body frame, not the heliocentric one.** This is the one
+place the model is easy to get wrong in a way that still looks like an answer. A spacecraft
+started from a geocentric state is stored heliocentrically after the body's ephemeris position
+is added, and applying a local burn to that heliocentric velocity makes "prograde" mean "along
+Earth's orbit about the Sun" — about 90° wrong for a LEO satellite. Measured before the fix:
+a 2006 m/s "Hohmann departure" burn moved the craft from a 6,363 km radius to 7,326 km instead
+of reaching 26,371 km. `applyBurn` therefore subtracts the central body's position and velocity,
+builds the frame from the geocentric state, applies the burn, and adds the body velocity back.
+An `inertial` node skips the subtraction, because inertial means heliocentric here by
+definition.
+
+**Tolerances.**
+
+- **Geocentric speed after a prograde burn rises by exactly the node's magnitude**: asserted to
+  1e-6 m/s. This is the assertion the frame bug failed.
+- **Heliocentric speed is asserted against the exact expected value**, not against the
+  first-order projection. `|v + Δv| − |v|` carries a second-order term `|Δv⊥|² / (2|v|)` that is
+  0.074 m/s for a 100 m/s burn nearly perpendicular to a 29.8 km/s heliocentric velocity, so
+  comparing to `Δv·cos θ` with a 1e-6 tolerance fails for a correct implementation. The test
+  instead computes `|v_helio + Δv|` directly and separately asserts that the first-order
+  projection is off by more than 0.01 m/s, so the second-order term is stated rather than
+  absorbed into a loose bound.
+- **Hohmann departure from a 400 km LEO reproduces the analytic apogee** at 20,000 km altitude:
+  arrival radius within 1 km, radial speed below 20 m/s (apogee, not a radial crossing),
+  tangential speed within ~5 m/s of vis-viva with a = (r₁+r₂)/2. Deliberately loose in the last
+  two because the two-body arc is sampled at finite resolution and the departure burn is applied
+  to an ephemeris-derived state.
+- **Δv accounting:** `usedDeltaV` equals the sum of node magnitudes to 1e-9, and
+  `remainingDeltaV` equals budget minus that sum, including when it goes negative.
+
+**Documented limitations.**
+
+- **Local burns are order-dependent.** The frame is re-derived after each burn, so two nodes at
+  the same instant do not commute. Measured difference: 0.15 m/s swapping a prograde and a
+  normal node. Correct behaviour for an impulsive model; `sortedManeuvers` breaks ties by id so
+  a saved mission always replays the same way.
+- **A craft placed exactly at a body's centre is singular.** The restricted N-body field
+  diverges there and `rk45Step` throws `step-size control failed to converge` rather than
+  reporting a non-finite state. Unhandled; tests place the craft 90° away in heliocentric
+  longitude. A realistic initial state is never at the centre, so v1 does not guard it.
+- **Impacts are detected, not resolved.** `impacts` is set when any sample falls inside the
+  central body's mean radius; the trajectory is not terminated or bounced there.
+
 ## 8. Lambert's problem
 
 Single-revolution solution by universal variables (Stumpff functions C(z), S(z)), as in
@@ -360,6 +414,10 @@ success. See DECISIONS D-008.
 - **Single revolution only.** Multi-revolution Lambert arcs are not implemented; the solver
   returns `converged: false` rather than an approximate answer. See ADR-0005.
 - **Impulsive burns only.** No finite-thrust arcs.
+- **Trajectory sampling is bounded.** `MAX_TRAJECTORY_POINTS = 4000` across a horizon and
+  `MIN_POINT_SPACING_SECONDS = 60`, so a long horizon is coarsely sampled rather than returning
+  millions of points. A burn always lands exactly on a sample: the propagation is split at every
+  node time, so the plotted line has a real vertex at each burn.
 - **Prescribed ephemerides.** The massive bodies follow their tabulated elements and are not
   themselves integrated (ADR-0003). This is the restricted problem.
 - **Newtonian gravity only.** No relativity, no oblateness (J₂), no drag, no solar

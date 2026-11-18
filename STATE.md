@@ -21,7 +21,7 @@ Last full run: `npm run verify` and `npx playwright test`.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 254 tests / 13 files                               |
+| Unit tests (`vitest run`)   | PASS, 302 tests / 15 files                               |
 | Build (`vite build`)        | PASS, 796 kB JS (214 kB gzip)                            |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
 | E2E (`npx playwright test`) | PASS, 12 tests against the real app in headless Chromium |
@@ -54,6 +54,8 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/simulation.test.ts`  | 15    | epoch/JD handling, body positions, determinism, reset         |
 | `tests/scale.test.ts`       | 17    | scene scale, radius compression, radial mapping               |
 | `tests/scenario.test.ts`    | 24    | scenario schema, validation errors, bundled catalogue         |
+| `tests/maneuver.test.ts`    | 23    | node frames, magnitudes, ordering, Δv totals                  |
+| `tests/trajectory.test.ts`  | 25    | propagation modes, burns in-frame, Δv accounting, Hohmann arc |
 | `e2e/shell.spec.ts`         | 12    | boot, WebGL, clock, picking, drag, zoom, scale, scenarios     |
 
 ## Module inventory
@@ -77,10 +79,12 @@ the same as a check on a GPU-backed desktop browser.
 
 `src/sim` — pure, no DOM, no clock, no RNG:
 
-| Module          | Status                                             |
-| --------------- | -------------------------------------------------- |
-| `clock.ts`      | complete, tested (warp, budget, step coarsening)   |
-| `simulation.ts` | complete, tested (epoch, JD, positions, snapshots) |
+| Module          | Status                                                    |
+| --------------- | --------------------------------------------------------- |
+| `clock.ts`      | complete, tested (warp, budget, step coarsening)          |
+| `simulation.ts` | complete, tested (epoch, JD, positions, snapshots)        |
+| `maneuver.ts`   | complete, tested (frames, ordering, Δv totals)            |
+| `trajectory.ts` | complete, tested (two-body + N-body, burns, impact check) |
 
 `src/render`:
 
@@ -107,22 +111,23 @@ the same as a check on a GPU-backed desktop browser.
 
 Entry points: `index.html`, `src/main.tsx`, `e2e/shell.spec.ts`, `playwright.config.ts`.
 
-Not yet written: trajectory history, spacecraft model, maneuver nodes, porkchop, ground
-track, scenario persistence and file import/export.
+Not yet written: trajectory rendering, the maneuver-node UI, porkchop, ground track, scenario
+persistence and file import/export. The M4 physics layer (`maneuver.ts`, `trajectory.ts`) exists
+and is tested, but nothing in `src/ui` or `src/render` consumes it yet.
 
 ## Milestones
 
-| Milestone                 | Status                                                        |
-| ------------------------- | ------------------------------------------------------------- |
-| M0 scaffold               | done except the remaining doc skeleton (SETUP, ARCHITECTURE…) |
-| M1 physics foundation     | done                                                          |
-| M2 N-body + solar system  | done                                                          |
-| M3 3D shell               | done (M3.1-M3.6)                                              |
-| M4 spacecraft + maneuvers | not started                                                   |
-| M5 mission planning       | M5.1, M5.2 done; porkchop, workflow, scenarios outstanding    |
-| M6 ground track + Moon    | not started                                                   |
-| M7 scenarios + polish     | not started                                                   |
-| M8 hardening              | not started                                                   |
+| Milestone                 | Status                                                         |
+| ------------------------- | -------------------------------------------------------------- |
+| M0 scaffold               | done                                                           |
+| M1 physics foundation     | done                                                           |
+| M2 N-body + solar system  | done                                                           |
+| M3 3D shell               | done (M3.1-M3.6)                                               |
+| M4 spacecraft + maneuvers | model layer done and tested; rendering and node UI outstanding |
+| M5 mission planning       | M5.1, M5.2 done; porkchop, workflow, scenarios outstanding     |
+| M6 ground track + Moon    | not started                                                    |
+| M7 scenarios + polish     | not started                                                    |
+| M8 hardening              | not started                                                    |
 
 ## Known limitations carried forward
 
@@ -142,3 +147,9 @@ track, scenario persistence and file import/export.
   capture and drag-versus-click suppression so orbiting never reselects a body. There is no
   touch gesture handler beyond what pointer events give for free: one-finger drag orbits,
   but pinch-to-zoom is not implemented.
+- A spacecraft placed exactly at a body's centre makes the restricted N-body field singular:
+  `rk45Step` throws `step-size control failed to converge` rather than returning a non-finite
+  state. Not guarded in v1; tests offset the craft 90° in heliocentric longitude.
+- Local burns at the same instant are order-dependent, because the frame is re-derived after
+  each burn (measured: 0.15 m/s swapping a prograde and a normal node). Order is deterministic
+  via (time, id), so a saved mission replays identically.

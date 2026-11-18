@@ -119,3 +119,31 @@ scenario reproducible. Inheriting the previous camera would mean the same scenar
 different depending on what was loaded before it. `centeredOn` exists because the two
 `frameAll` distances are wrong for a pair like Earth-Moon: a 60-unit camera aimed at the Sun
 shows neither body.
+
+## D-012 — A local burn is applied in the central-body frame
+
+**Choice:** `applyBurn` converts the heliocentric state to the spacecraft's central-body frame,
+builds the local orbital frame there, applies the burn, and converts back. Only an `inertial`
+node acts on the heliocentric state directly.
+**Alternatives:** apply every node to the single stored heliocentric state (simplest, and what
+the first implementation did); store the spacecraft state in the central-body frame permanently.
+**Why:** the first implementation was wrong in a way that reads as an answer. With the burn
+applied heliocentrically, "prograde" meant "along Earth's orbit about the Sun", about 90 degrees
+off for a LEO satellite; a 2006 m/s Hohmann departure burn left the craft at 7,326 km instead
+of reaching 26,371 km. Measured, fixed, then pinned by a regression test that asserts geocentric
+speed rises by exactly the node magnitude. Storing state per central body is the other honest
+option, but it forces every consumer to know which frame a point is in; converting at the single
+site where a burn happens keeps one storage frame and one conversion point.
+
+## D-013 — Trajectory is split at every burn, not sampled uniformly
+
+**Choice:** `propagateTrajectory` builds segment boundaries from the epoch, every node time
+strictly inside the horizon, and the horizon, then samples each segment. A node emits two points
+at the same instant, the second flagged `afterBurn`.
+**Alternatives:** sample uniformly and apply any burn that falls inside a step (so the velocity
+jumps mid-segment); re-integrate from the epoch after each burn.
+**Why:** uniform sampling silently rounds a burn to a sample time, which moves the burn and so
+changes the answer, and it draws a smooth curve through a velocity discontinuity that genuinely
+exists. Splitting puts a vertex exactly at the node and makes `afterBurn` meaningful for a plot.
+Re-integrating from the epoch is quadratic in the number of burns and recomputes identical arcs;
+the incremental sweep recomputes nothing.

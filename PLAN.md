@@ -50,10 +50,23 @@ Milestone plan and iteration backlog for Periapsis. Status vocabulary: `pending`
 
 ## M4 — Spacecraft and maneuvers
 
+The model layer is complete and tested; the visual layer is not built yet, so the items stay
+open with their halves distinguished rather than checked off wholesale.
+
 - [ ] M4.1 Spacecraft model + trajectory history/future lines
+  - [x] `Spacecraft` (central body, relative state, budget, nodes) and `propagateTrajectory`
+        with `twoBody` and `nbody` modes, split at every burn
+  - [ ] Rendered future line in the 3D view
 - [ ] M4.2 Maneuver nodes (time + prograde/normal/radial), edit/delete
+  - [x] `Maneuver` in the local orbital frame or inertial, `applyManeuver`, deterministic
+        ordering by (time, id)
+  - [ ] Node list UI with add/edit/delete
 - [ ] M4.3 Predicted post-burn trajectory refresh
+  - [x] Post-burn segments are propagated, `afterBurn` points mark the discontinuity
+  - [ ] Refresh on node edit in the UI
 - [ ] M4.4 Delta-v budget per spacecraft
+  - [x] `totalDeltaV`, `remainingDeltaV`, `usedDeltaV` per propagation (negative when over)
+  - [ ] Budget readout in the inspector
 - [ ] M4.5 LEO constellation scenario
 - [ ] M4.6 Screenshots + review notes
 
