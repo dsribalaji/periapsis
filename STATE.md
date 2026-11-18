@@ -15,19 +15,27 @@ Snapshot of where the build actually stands. Updated at the end of every iterati
 
 ## Verified status
 
-Last run: `npx tsc --noEmit`, `npx eslint .`, `npx vitest run`.
+Last full run: `npm run verify` and `npx playwright test`.
 
-| Check                      | Result                                            |
-| -------------------------- | ------------------------------------------------- |
-| Typecheck (`tsc --noEmit`) | PASS                                              |
-| Lint (`eslint .`)          | PASS, 0 problems                                  |
-| Unit tests (`vitest run`)  | PASS, 177 tests / 9 files                         |
-| Build (`vite build`)       | FAIL — no `index.html` yet (M3 shell not written) |
-| `npm run verify`           | FAIL, only because of the build step above        |
+| Check                       | Result                                                   |
+| --------------------------- | -------------------------------------------------------- |
+| Typecheck (`tsc --noEmit`)  | PASS                                                     |
+| Lint (`eslint .`)           | PASS, 0 problems                                         |
+| Unit tests (`vitest run`)   | PASS, 226 tests / 12 files                               |
+| Build (`vite build`)        | PASS, 791 kB JS (212 kB gzip)                            |
+| `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
+| E2E (`npx playwright test`) | PASS, 10 tests against the real app in headless Chromium |
 
-The build failure is expected, not a regression: Vite needs an entry HTML file and the 3D
-application shell is M3. `verify` will go green when M3.1 lands. Nothing is being hidden
-by leaving this red — the four checks are run individually and reported separately.
+All six were run, not inferred. The e2e suite starts its own dev server and drives the real
+page: it asserts React mounts, a WebGL canvas is created and sized, the clock advances while
+running, pausing freezes it, selecting a body updates the inspector, dragging orbits without
+reselecting, the wheel zooms, the radial-mode toggle changes what is on screen, and the
+console stays free of errors.
+
+Note on the browser: the paired interactive browser extension was not connected, so
+verification ran through Playwright's Chromium with software GL
+(`--use-gl=swiftshader`). That is a real browser executing the real bundle, but it is not
+the same as a check on a GPU-backed desktop browser.
 
 ## Test inventory
 
@@ -42,8 +50,14 @@ by leaving this red — the four checks are run individually and reported separa
 | `tests/ephemeris.test.ts`   | 28    | body positions, velocities, mean motion, SOI                  |
 | `tests/nbody.test.ts`       | 21    | acceleration, dominant body, patched-conic re-parenting       |
 | `tests/lambert.test.ts`     | 35    | Hohmann/bi-elliptic/plane change + Lambert solver             |
+| `tests/clock.test.ts`       | 21    | warp, step budget, frame-rate independence, formatting        |
+| `tests/simulation.test.ts`  | 11    | epoch/JD handling, body positions, determinism                |
+| `tests/scale.test.ts`       | 17    | scene scale, radius compression, radial mapping               |
+| `e2e/shell.spec.ts`         | 10    | boot, WebGL, clock run/pause, picking, drag, zoom, scale mode |
 
-## Module inventory (`src/core`)
+## Module inventory
+
+`src/core` — pure TypeScript, zero runtime deps, boundary enforced by ESLint:
 
 | Module                            | Status                                  |
 | --------------------------------- | --------------------------------------- |
@@ -60,19 +74,43 @@ by leaving this red — the four checks are run individually and reported separa
 | `transfer/transfers.ts`           | complete, tested                        |
 | `transfer/lambert.ts`             | complete, tested (single revolution)    |
 
-Not yet written: `src/sim/**` (simulation clock, warp, trajectory history), `src/render/**`
-(Three.js), `src/ui/**` (React), `src/scenarios/**`, `index.html`, `src/main.tsx`.
+`src/sim` — pure, no DOM, no clock, no RNG:
+
+| Module          | Status                                             |
+| --------------- | -------------------------------------------------- |
+| `clock.ts`      | complete, tested (warp, budget, step coarsening)   |
+| `simulation.ts` | complete, tested (epoch, JD, positions, snapshots) |
+
+`src/render`:
+
+| Module     | Status                                                                            |
+| ---------- | --------------------------------------------------------------------------------- |
+| `scale.ts` | complete, tested (linear + logarithmic radial mapping)                            |
+| `scene.ts` | complete: bodies, rings, labels, picking, camera, drag/zoom, off-screen reporting |
+
+`src/ui`:
+
+| Module           | Status                                  |
+| ---------------- | --------------------------------------- |
+| `App.tsx`        | complete: viewport, time bar, inspector |
+| `bodyDisplay.ts` | complete: names, colours, ordering      |
+| `styles.css`     | complete: dark theme, reduced motion    |
+
+Entry points: `index.html`, `src/main.tsx`, `e2e/shell.spec.ts`, `playwright.config.ts`.
+
+Not yet written: `src/scenarios/**`, trajectory history, spacecraft model, maneuver nodes,
+porkchop, ground track.
 
 ## Milestones
 
 | Milestone                 | Status                                                        |
 | ------------------------- | ------------------------------------------------------------- |
-| M0 scaffold               | done except React shell and state-file cleanup (M0.8)         |
-| M1 physics foundation     | done (PHYSICS.md written)                                     |
+| M0 scaffold               | done except the remaining doc skeleton (SETUP, ARCHITECTURE…) |
+| M1 physics foundation     | done                                                          |
 | M2 N-body + solar system  | done                                                          |
-| M3 3D shell               | not started                                                   |
+| M3 3D shell               | done except bundled scenario loading (M3.6)                   |
 | M4 spacecraft + maneuvers | not started                                                   |
-| M5 mission planning       | M5.1 and M5.2 done; porkchop, workflow, scenarios outstanding |
+| M5 mission planning       | M5.1, M5.2 done; porkchop, workflow, scenarios outstanding    |
 | M6 ground track + Moon    | not started                                                   |
 | M7 scenarios + polish     | not started                                                   |
 | M8 hardening              | not started                                                   |
@@ -85,3 +123,13 @@ Not yet written: `src/sim/**` (simulation clock, warp, trajectory history), `src
   tens of m/s.
 - Element round-trip near apsides is capped at ~1.5e-8 relative by true-anomaly
   ill-conditioning; tests are bounded accordingly and say so in comments.
+- The 3D view offers two radial layouts because neither alone is sufficient: true scale is
+  honest but only fits the inner system (Neptune is 3,010 units out against a ~133-unit
+  visible half-height at the default camera), while the compressed mode fits everything but
+  is not to scale. Body radii are cube-root compressed in both modes. All three compromises
+  are labelled in the UI rather than left implicit, and the View panel names exactly which
+  bodies are off screen at the current camera distance.
+- Drag-to-orbit and wheel zoom are wired to pointer events on the canvas, with pointer
+  capture and drag-versus-click suppression so orbiting never reselects a body. There is no
+  touch gesture handler beyond what pointer events give for free: one-finger drag orbits,
+  but pinch-to-zoom is not implemented.

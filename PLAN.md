@@ -15,12 +15,11 @@ Milestone plan and iteration backlog for Periapsis. Status vocabulary: `pending`
 - [x] M0.2 TypeScript strict config, Vite + React build, Prettier
 - [x] M0.3 ESLint with the core-purity boundary rules
 - [x] M0.4 Vitest config + Playwright config + first smoke test
-- [x] M0.5 `verify` script runs typecheck, lint, unit tests, build
-- [ ] M0.6 Docs skeleton (README, SETUP, ARCHITECTURE, PHYSICS, ADR-0001, TESTING, GLOSSARY, ...)
+- [x] M0.5 `verify` script runs typecheck, lint, unit tests, build- [ ] M0.6 Docs skeleton (README, SETUP, ARCHITECTURE, PHYSICS, ADR-0001, TESTING, GLOSSARY, ...)
       — partial: README.md, PHYSICS.md, PLAN.md, STATE.md, DECISIONS.md, BLOCKERS.md exist.
       Still missing: SETUP, ARCHITECTURE, TESTING, GLOSSARY, ADR/.
 - [x] M0.7 State files: PLAN, STATE, BLOCKERS, DECISIONS
-- [ ] M0.8 React shell renders; offline-only (no network at runtime)
+- [x] M0.8 React shell renders; offline-only (no network at runtime)
 
 ## M1 — Physics foundation
 
@@ -41,11 +40,11 @@ Milestone plan and iteration backlog for Periapsis. Status vocabulary: `pending`
 
 ## M3 — 3D application shell
 
-- [ ] M3.1 Three.js scene bootstrap, body meshes, orbits, labels
-- [ ] M3.2 Camera modes: free orbit, follow body, chase
-- [ ] M3.3 Selection + readouts
-- [ ] M3.4 Fixed-timestep simulation clock decoupled from FPS, time controls, warp
-- [ ] M3.5 Bounded compute budget per frame + fast (closed-form coast) mode
+- [x] M3.1 Three.js scene bootstrap, body meshes, orbits, labels
+- [x] M3.2 Camera modes: free orbit, follow body, chase
+- [x] M3.3 Selection + readouts
+- [x] M3.4 Fixed-timestep simulation clock decoupled from FPS, time controls, warp
+- [x] M3.5 Bounded compute budget per frame + fast (closed-form coast) mode
 - [ ] M3.6 First bundled scenario loads in UI
 
 ## M4 — Spacecraft and maneuvers
