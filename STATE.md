@@ -21,16 +21,16 @@ Last full run: `npm run verify` and `npx playwright test`.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 226 tests / 12 files                               |
-| Build (`vite build`)        | PASS, 791 kB JS (212 kB gzip)                            |
+| Unit tests (`vitest run`)   | PASS, 254 tests / 13 files                               |
+| Build (`vite build`)        | PASS, 796 kB JS (214 kB gzip)                            |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
-| E2E (`npx playwright test`) | PASS, 10 tests against the real app in headless Chromium |
+| E2E (`npx playwright test`) | PASS, 12 tests against the real app in headless Chromium |
 
 All six were run, not inferred. The e2e suite starts its own dev server and drives the real
 page: it asserts React mounts, a WebGL canvas is created and sized, the clock advances while
 running, pausing freezes it, selecting a body updates the inspector, dragging orbits without
-reselecting, the wheel zooms, the radial-mode toggle changes what is on screen, and the
-console stays free of errors.
+reselecting, the wheel zooms, the radial-mode toggle changes what is on screen, a scenario
+switch replaces the epoch and focus, and the console stays free of errors.
 
 Note on the browser: the paired interactive browser extension was not connected, so
 verification ran through Playwright's Chromium with software GL
@@ -51,9 +51,10 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/nbody.test.ts`       | 21    | acceleration, dominant body, patched-conic re-parenting       |
 | `tests/lambert.test.ts`     | 35    | Hohmann/bi-elliptic/plane change + Lambert solver             |
 | `tests/clock.test.ts`       | 21    | warp, step budget, frame-rate independence, formatting        |
-| `tests/simulation.test.ts`  | 11    | epoch/JD handling, body positions, determinism                |
+| `tests/simulation.test.ts`  | 15    | epoch/JD handling, body positions, determinism, reset         |
 | `tests/scale.test.ts`       | 17    | scene scale, radius compression, radial mapping               |
-| `e2e/shell.spec.ts`         | 10    | boot, WebGL, clock run/pause, picking, drag, zoom, scale mode |
+| `tests/scenario.test.ts`    | 24    | scenario schema, validation errors, bundled catalogue         |
+| `e2e/shell.spec.ts`         | 12    | boot, WebGL, clock, picking, drag, zoom, scale, scenarios     |
 
 ## Module inventory
 
@@ -90,16 +91,24 @@ the same as a check on a GPU-backed desktop browser.
 
 `src/ui`:
 
-| Module           | Status                                  |
-| ---------------- | --------------------------------------- |
-| `App.tsx`        | complete: viewport, time bar, inspector |
-| `bodyDisplay.ts` | complete: names, colours, ordering      |
-| `styles.css`     | complete: dark theme, reduced motion    |
+| Module           | Status                                                   |
+| ---------------- | -------------------------------------------------------- |
+| `App.tsx`        | complete: viewport, scenario picker, time bar, inspector |
+| `bodyDisplay.ts` | complete: names, colours, ordering                       |
+| `styles.css`     | complete: dark theme, reduced motion                     |
+
+`src/scenarios` — schema, validation and the bundled catalogue:
+
+| Module         | Status                                                       |
+| -------------- | ------------------------------------------------------------ |
+| `types.ts`     | complete: versioned `Scenario` / `ScenarioView` types        |
+| `validate.ts`  | complete, tested: structural validation with field paths     |
+| `catalogue.ts` | complete, tested: three bundled scenarios, validated on load |
 
 Entry points: `index.html`, `src/main.tsx`, `e2e/shell.spec.ts`, `playwright.config.ts`.
 
-Not yet written: `src/scenarios/**`, trajectory history, spacecraft model, maneuver nodes,
-porkchop, ground track.
+Not yet written: trajectory history, spacecraft model, maneuver nodes, porkchop, ground
+track, scenario persistence and file import/export.
 
 ## Milestones
 
@@ -108,7 +117,7 @@ porkchop, ground track.
 | M0 scaffold               | done except the remaining doc skeleton (SETUP, ARCHITECTURE…) |
 | M1 physics foundation     | done                                                          |
 | M2 N-body + solar system  | done                                                          |
-| M3 3D shell               | done except bundled scenario loading (M3.6)                   |
+| M3 3D shell               | done (M3.1-M3.6)                                              |
 | M4 spacecraft + maneuvers | not started                                                   |
 | M5 mission planning       | M5.1, M5.2 done; porkchop, workflow, scenarios outstanding    |
 | M6 ground track + Moon    | not started                                                   |

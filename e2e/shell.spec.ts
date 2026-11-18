@@ -117,7 +117,41 @@ test.describe('application shell', () => {
     expect(Buffer.compare(before, after)).not.toBe(0);
   });
 
-  test('switching to whole-system scale brings the outer planets into view', async ({ page }) => {
+  test('switching scenarios loads the bundled framing and epoch', async ({ page }) => {
+    await page.goto('/');
+
+    const picker = page.getByLabel('Scenario');
+    await expect(picker).toHaveValue('inner-system');
+
+    // The default scenario starts at warp 1e4, so the clock is running on load.
+    await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+
+    await picker.selectOption('whole-system');
+    await expect(page.getByTestId('scenario-epoch')).toContainText('2026-11-18 12:00:00 UTC');
+    await expect(page.getByRole('button', { name: 'Whole system', exact: true })).toHaveClass(
+      /active/,
+    );
+    // The compressed layout fits every body; that is the point of the scenario.
+    await expect(page.getByTestId('offscreen-note')).toHaveText('Every body is on screen.');
+
+    await picker.selectOption('earth-moon');
+    // Switching restarts at the scenario's own epoch. The date alone is asserted: the clock
+    // is running again immediately, so any assertion on the time of day would race.
+    await expect(page.getByTestId('scenario-epoch')).toContainText('2027-04-07 12:00:00 UTC');
+    await expect(page.locator('.sim-time')).toContainText('2027-04-07');
+  });
+
+  test('switching scenarios does not leak the previous selection', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.body-row', { hasText: 'Mars' }).click();
+    await expect(page.locator('.readout dd').first()).toHaveText('Mars');
+
+    await page.getByLabel('Scenario').selectOption('earth-moon');
+    // The scenario declares its focus, and that focus must win over whatever was selected.
+    await expect(page.locator('.readout dd').first()).toHaveText('Moon');
+  });
+
+  test('the whole-system scale brings the outer planets into view', async ({ page }) => {
     await page.goto('/');
     const canvas = page.locator('.viewport canvas');
     const note = page.getByTestId('offscreen-note');

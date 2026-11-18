@@ -73,10 +73,49 @@ one elliptic arc connects them. Verified against the independent Hohmann closed 
 
 ## D-008 — Lambert: reject solutions above 0.1c
 
-**Choice:** treat a solution as non-convergent when either speed exceeds 3e7 m/s.
+**Choice:** treat a solution as non-convergent when either speed exceeds `MAX_SPEED = 3e7`
+m/s (0.1c).
+**Alternatives:** return whatever the root find produces; cap the speed silently.
 **Why:** the bound is about model validity, not numerics. A one-revolution arc can be made
-arbitrarily fast by collapsing toward a rectilinear plunge (`h -> 0`); "1 AU in 10
-seconds" has a finite, computable answer at ~70c. Nothing diverges numerically, so without
-this bound the solver reports a physically meaningless result as `converged: true`. The
-threshold sits far above any real heliocentric transfer (New Horizons departed at
-~16 km/s) and far below the regime where a Newtonian two-body model has any meaning.
+arbitrarily fast by collapsing toward a rectilinear plunge (`h -> 0`); "1 AU in 10 seconds"
+has a finite, computable answer at about 70c, and nothing diverges numerically along the way.
+Without this bound the solver reports a physically meaningless answer as `converged: true`.
+The threshold sits far above any real heliocentric transfer (New Horizons departed at
+~16 km/s) and far below the regime where a Newtonian two-body model means anything.
+
+## D-009 — Scenarios are data, and are validated on load
+
+**Choice:** a scenario is a versioned object holding only an epoch, start warp, focus body
+and camera framing. It stores no orbital state. Bundled entries run through
+`assertScenario` at module load; external ones run through `validateScenario` and get a list
+of `{path, message}` issues.
+**Alternatives:** let a scenario carry explicit position vectors (more general, allows
+arbitrary non-ephemeris states); validate lazily with a type guard only.
+**Why:** position is a pure function of the epoch, so a scenario carrying its own vectors
+could contradict the ephemeris and there would be no single source of truth to adjudicate.
+Validating structure only means an invalid file can never produce a wrong orbit — the worst
+case is a refusal to load. Returning field paths rather than throwing is what M7.2's import
+error report needs, and it means the same function serves the bundled data, an imported file
+and a test.
+
+## D-010 — Switching scenarios resets in place rather than rebuilding
+
+**Choice:** `Simulation.reset(epoch, warp)` mutates the existing instance; the React shell
+keeps one `Simulation` for the lifetime of the app.
+**Alternatives:** construct a new `Simulation` per scenario, keyed by scenario id, letting
+React remount.
+**Why:** the renderer and the animation-frame loop hold a reference to the simulation, and
+remounting would tear down and rebuild the WebGL context to change a date. `reset` is
+tested to produce state identical to a fresh construction, so the optimisation cannot drift
+from the simple behaviour.
+
+## D-011 — Scenario camera framing is stored, not inherited
+
+**Choice:** a scenario carries `azimuthRad`, `elevationRad`, `distanceUnits` and
+`centeredOn`. Loading applies all four.
+**Alternatives:** only store the radial mode and let `frameAll()` pick the distance.
+**Why:** "the inner system from 30 degrees above the ecliptic" is part of what makes a
+scenario reproducible. Inheriting the previous camera would mean the same scenario looks
+different depending on what was loaded before it. `centeredOn` exists because the two
+`frameAll` distances are wrong for a pair like Earth-Moon: a 60-unit camera aimed at the Sun
+shows neither body.

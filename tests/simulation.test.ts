@@ -100,3 +100,56 @@ describe('simulation driver', () => {
     expect((sim.jdTt - sim.jdUtc) * SECONDS_PER_DAY).toBeCloseTo(69.184, 3);
   });
 });
+
+describe('simulation reset', () => {
+  it('restarts at a new epoch and rewind to zero elapsed time', () => {
+    const sim = new Simulation(EPOCH, 1e4);
+    for (let i = 0; i < 20; i++) sim.advance(16.667);
+    expect(sim.simSeconds).toBeGreaterThan(0);
+
+    sim.reset('2027-03-01T12:00:00Z', 1e3);
+    expect(sim.simSeconds).toBe(0);
+    expect(sim.warp).toBe(1e3);
+    expect(sim.jdUtc).toBeCloseTo(jdFromIsoUtc('2027-03-01T12:00:00Z'), 9);
+  });
+
+  it('moves the bodies to the new epoch, not the old one', () => {
+    const sim = new Simulation(EPOCH);
+    const earthBefore = { ...sim.positions().get('earth')! };
+    sim.reset('2027-03-01T12:00:00Z', 1);
+    const earthAfter = sim.positions().get('earth')!;
+    const moved = Math.hypot(
+      earthAfter.x - earthBefore.x,
+      earthAfter.y - earthBefore.y,
+      earthAfter.z - earthBefore.z,
+    );
+    // Over ~103 days Earth travels most of a quadrant of its orbit.
+    expect(moved).toBeGreaterThan(0.1 * AU_M);
+  });
+
+  it('survives being reset while paused, and unpauses to the requested warp', () => {
+    const sim = new Simulation(EPOCH, 0);
+    expect(sim.paused).toBe(true);
+    sim.reset(EPOCH, 1e5);
+    expect(sim.paused).toBe(false);
+    expect(sim.advance(16.667).steps).toBe(120);
+  });
+
+  it('produces an identical state to a freshly constructed simulation', () => {
+    // The renderer and frame loop hold a reference to this object, so reset must be
+    // equivalent to reconstruction or a scenario switch carries stale state.
+    const reset = new Simulation(EPOCH, 1e4);
+    for (let i = 0; i < 30; i++) reset.advance(16.667);
+    reset.reset('2028-01-01T00:00:00Z', 100);
+
+    const fresh = new Simulation('2028-01-01T00:00:00Z', 100);
+    expect(reset.jdUtc).toBe(fresh.jdUtc);
+    expect(reset.simSeconds).toBe(fresh.simSeconds);
+    expect(reset.warp).toBe(fresh.warp);
+
+    reset.advance(16.667);
+    fresh.advance(16.667);
+    expect(reset.jdUtc).toBe(fresh.jdUtc);
+    expect(reset.positions().get('jupiter')).toEqual(fresh.positions().get('jupiter'));
+  });
+});

@@ -3,11 +3,15 @@
 An offline orbital mechanics sandbox and mission designer. Runs entirely in the browser,
 needs no account, no server and no network at runtime.
 
-**Status: in development.** The physics core is complete and tested (177 tests); the 3D
-application shell, spacecraft modelling and mission-planning UI are not built yet. See
-`STATE.md` for what actually runs today and `PLAN.md` for the milestone backlog.
+**Status: in development.** The physics core is complete and tested (254 unit tests); the 3D
+application shell runs with scenario loading, mouse camera control and time controls.
+Spacecraft modelling, maneuver nodes and mission planning UI are not built yet. See `STATE.md`
+for what actually runs today and `PLAN.md` for the milestone backlog.
 
 ## What works today
+
+The app: a 3D solar-system view with a draggable, zoomable camera, three bundled scenarios, a
+warp clock from 1× to 10⁷×, and an inspector.
 
 The pure physics core, as a library under `src/core`:
 
@@ -21,11 +25,18 @@ The pure physics core, as a library under `src/core`:
 - Hohmann, bi-elliptic and plane-change transfers
 - Lambert's problem, single revolution
 
-To exercise it, run the test suite:
+To try it:
 
 ```
-npm install
-npm test
+npm ci
+npm run dev        # http://localhost:5183
+```
+
+To check it:
+
+```
+npm run verify     # typecheck + lint + 254 unit tests + build
+npm run test:e2e   # 12 Playwright tests against the real app
 ```
 
 ## Stack
@@ -35,29 +46,33 @@ Playwright 1.65.1 — all pinned exactly, no carets, for reproducible clean clon
 
 The physics core has **zero runtime dependencies** and does not touch the DOM, the clock or
 randomness. That is enforced by ESLint rules on `src/core/**` and `src/sim/**`, not by
-convention, so the boundary cannot quietly erode.
+convention, so the boundary cannot quietly erode (ADR-0001).
 
 ## Commands
 
-| Command             | What it does                                          |
-| ------------------- | ----------------------------------------------------- |
-| `npm run dev`       | Vite dev server (needs an entry point; lands with M3) |
-| `npm test`          | unit tests                                            |
-| `npm run typecheck` | `tsc` with strict settings                            |
-| `npm run lint`      | ESLint, including the core-purity boundary            |
-| `npm run build`     | typecheck + production build                          |
-| `npm run verify`    | typecheck + lint + tests + build                      |
+| Command             | What it does                               |
+| ------------------- | ------------------------------------------ |
+| `npm run dev`       | Vite dev server on http://localhost:5183   |
+| `npm test`          | unit tests (254)                           |
+| `npm run test:e2e`  | Playwright end-to-end tests (12)           |
+| `npm run typecheck` | `tsc` with strict settings                 |
+| `npm run lint`      | ESLint, including the core-purity boundary |
+| `npm run build`     | typecheck + production build               |
+| `npm run verify`    | typecheck + lint + tests + build           |
 
-`npm run verify` does not pass yet: the build step needs `index.html`, which arrives with
-the application shell. The other three checks pass. This is stated here rather than left
-for a reader to discover.
+All of the above pass. See `STATE.md` for the numbers from the last real run.
 
 ## Documentation
 
+- `SETUP.md` — clean checkout to running app
 - `PLAN.md` — milestones and iteration backlog
 - `STATE.md` — verified current status, test inventory, known limitations
+- `ARCHITECTURE.md` — layers, boundaries, and why they are where they are
 - `PHYSICS.md` — every model, and the justification for every test tolerance
-- `DECISIONS.md` — judgment calls made without asking
+- `TESTING.md` — what is tested at which level, and the rules a test must follow
+- `GLOSSARY.md` — orbital mechanics terms as this project uses them
+- `ADR/` — the seven decisions that shaped the codebase
+- `DECISIONS.md` — smaller judgment calls made without asking
 - `BLOCKERS.md` — anything currently stuck
 
 ## Accuracy, honestly

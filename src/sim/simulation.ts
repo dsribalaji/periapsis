@@ -28,10 +28,22 @@ export interface SimulationSnapshot {
 
 export class Simulation {
   /** UTC Julian date of simulation time zero. */
-  private readonly epochJdUtc: number;
+  private epochJdUtc: number;
   private clock: ClockState;
 
   constructor(epochIso: string = '2026-11-18T00:00:00Z', warp: Warp = 1) {
+    this.epochJdUtc = jdFromIsoUtc(epochIso);
+    this.clock = createClock(warp);
+  }
+
+  /**
+   * Restarts at a new epoch.
+   *
+   * In place rather than by constructing a new `Simulation`, because the renderer and the
+   * frame loop hold a reference to this object; swapping it would mean tearing down and
+   * rebuilding the WebGL context just to change the date.
+   */
+  reset(epochIso: string, warp: Warp): void {
     this.epochJdUtc = jdFromIsoUtc(epochIso);
     this.clock = createClock(warp);
   }

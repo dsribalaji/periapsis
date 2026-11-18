@@ -358,7 +358,7 @@ success. See DECISIONS D-008.
 ## 9. Scope and known limits
 
 - **Single revolution only.** Multi-revolution Lambert arcs are not implemented; the solver
-  returns `converged: false` rather than an approximate answer. Documented in ADR-0008.
+  returns `converged: false` rather than an approximate answer. See ADR-0005.
 - **Impulsive burns only.** No finite-thrust arcs.
 - **Prescribed ephemerides.** The massive bodies follow their tabulated elements and are not
   themselves integrated (ADR-0003). This is the restricted problem.

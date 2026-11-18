@@ -26,8 +26,10 @@ import type { RadialMode } from '../render/scale.js';
 import { BODY_DISPLAY } from './bodyDisplay.js';
 import type { BodyId } from '../core/ephemeris/solarSystem.js';
 import { AU_M } from '../core/constants.js';
+import { SCENARIOS, defaultScenario } from '../scenarios/catalogue.js';
+import type { Scenario } from '../scenarios/types.js';
 
-const EPOCH = '2026-11-18T00:00:00Z';
+const INITIAL_SCENARIO = defaultScenario();
 
 interface DisplayState {
   readonly simSeconds: number;
@@ -42,7 +44,7 @@ interface DisplayState {
 
 const INITIAL_DISPLAY: DisplayState = {
   simSeconds: 0,
-  isoUtc: EPOCH,
+  isoUtc: INITIAL_SCENARIO.epochUtc,
   throttled: false,
   distances: new Map(),
   offscreen: new Set<BodyId>(),
@@ -53,19 +55,47 @@ export function App(): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SolarSystemScene | null>(null);
   // Created once. Never replaced, only mutated through event handlers.
-  const [sim] = useState(() => new Simulation(EPOCH, 1));
+  const [sim] = useState(
+    () => new Simulation(INITIAL_SCENARIO.epochUtc, INITIAL_SCENARIO.startWarp),
+  );
 
-  const [selected, setSelected] = useState<BodyId>('earth');
-  const [warp, setWarpState] = useState<Warp>(1);
-  const [scaleMode, setScaleMode] = useState<RadialMode>('linear');
+  const [scenario, setScenario] = useState<Scenario>(INITIAL_SCENARIO);
+  const [selected, setSelected] = useState<BodyId>(INITIAL_SCENARIO.focus);
+  const [warp, setWarpState] = useState<Warp>(INITIAL_SCENARIO.startWarp);
+  const [scaleMode, setScaleMode] = useState<RadialMode>(INITIAL_SCENARIO.view.radialMode);
   const [display, setDisplay] = useState<DisplayState>(INITIAL_DISPLAY);
 
   // Last non-paused warp, so Play resumes at the speed the user was using. Updated only
   // from event handlers, never from an effect.
-  const resumeWarpRef = useRef<Warp>(1);
+  const resumeWarpRef = useRef<Warp>(INITIAL_SCENARIO.startWarp);
 
   // Set when WebGL fails to start, read by the frame loop and published with the readouts.
   const webglErrorRef = useRef<string | null>(null);
+
+  /**
+   * Puts the scene into a scenario's framing.
+   *
+   * Positions must be pushed before the camera is aimed, because framing a body reads its
+   * scene position; doing it the other way round aims the camera at where the body was.
+   */
+  const applyScenario = useCallback(
+    (next: Scenario) => {
+      sim.reset(next.epochUtc, next.startWarp);
+      resumeWarpRef.current = next.startWarp;
+      setWarpState(next.startWarp);
+      setSelected(next.focus);
+      setScaleMode(next.view.radialMode);
+      setScenario(next);
+
+      const scene = sceneRef.current;
+      if (!scene) return;
+      scene.setRadialMode(next.view.radialMode);
+      scene.updatePositions(sim.positions());
+      scene.setCamera(next.view);
+      if (next.view.centeredOn === 'focus') scene.centerOn(next.focus);
+    },
+    [sim],
+  );
 
   const handleWarp = useCallback(
     (next: Warp) => {
@@ -113,6 +143,8 @@ export function App(): React.JSX.Element {
     }
     sceneRef.current = scene;
     scene.updatePositions(sim.positions());
+    scene.setCamera(INITIAL_SCENARIO.view);
+    if (INITIAL_SCENARIO.view.centeredOn === 'focus') scene.centerOn(INITIAL_SCENARIO.focus);
     scene.render();
 
     return () => {
@@ -210,6 +242,28 @@ export function App(): React.JSX.Element {
         <div className="brand">
           <h1>Periapsis</h1>
           <span className="version">v0.1.0-dev</span>
+        </div>
+
+        <div className="section">
+          <h2>Scenario</h2>
+          <select
+            aria-label="Scenario"
+            value={scenario.id}
+            onChange={(e) => {
+              const next = SCENARIOS.find((s) => s.id === e.target.value);
+              if (next) applyScenario(next);
+            }}
+          >
+            {SCENARIOS.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <p className="hint">{scenario.description}</p>
+          <p className="hint" data-testid="scenario-epoch">
+            Epoch {scenario.epochUtc.replace('T', ' ').replace('Z', ' UTC')}
+          </p>
         </div>
 
         <div className="section">

@@ -271,6 +271,42 @@ export class SolarSystemScene {
     this.buildOrbitRings();
   }
 
+  /**
+   * Restores a stored camera framing.
+   *
+   * Camera only: the radial mode is applied by the caller before positions are pushed,
+   * because it changes what a scene-unit distance means. Doing both here would either aim
+   * the camera at a layout that has not been applied yet, or reposition bodies with the old
+   * mapping.
+   */
+  setCamera(view: {
+    readonly azimuthRad: number;
+    readonly elevationRad: number;
+    readonly distanceUnits: number;
+  }): void {
+    this.azimuth = view.azimuthRad;
+    this.elevation = clamp(view.elevationRad, -1.5, 1.5);
+    this.distance = clamp(view.distanceUnits, 0.5, 4000);
+    this.updateCamera();
+  }
+
+  /** Points the camera at a body's current scene position, keeping the stored framing. */
+  centerOn(id: BodyId): void {
+    const pos = this.scenePositions.get(id);
+    if (!pos) return;
+    this.orbitTarget.copy(pos);
+    this.updateCamera();
+  }
+
+  /** Current camera framing, so the UI can save it back into a scenario. */
+  getCamera(): { azimuthRad: number; elevationRad: number; distanceUnits: number } {
+    return {
+      azimuthRad: this.azimuth,
+      elevationRad: this.elevation,
+      distanceUnits: this.distance,
+    };
+  }
+
   get scaleMode(): RadialMode {
     return this.radialMode;
   }
