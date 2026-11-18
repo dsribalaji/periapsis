@@ -3,17 +3,19 @@
 An offline orbital mechanics sandbox and mission designer. Runs entirely in the browser,
 needs no account, no server and no network at runtime.
 
-**Status: in development.** The physics core is complete and tested (367 unit tests); the 3D
+**Status: in development.** The physics core is complete and tested (449 unit tests); the 3D
 application shell runs with scenario loading, mouse camera control, time controls and a working
 mission layer — a spacecraft flies a planned path drawn in the view, with maneuver nodes and a
-delta-v budget. The node _editor_ (add/edit/delete) and mission planning UI are not built yet.
-See `STATE.md` for what actually runs today and `PLAN.md` for the milestone backlog.
+delta-v budget. A porkchop plot finds interplanetary launch windows by solving Lambert's problem
+over a grid of departure dates and flight times. The node _editor_ (add/edit/delete), the
+transfer-to-node workflow and the ground track are not built yet. See `STATE.md` for what
+actually runs today and `PLAN.md` for the milestone backlog.
 
 ## What works today
 
 The app: a 3D solar-system view with a draggable, zoomable camera, four bundled scenarios, a
-warp clock from 1× to 10⁷×, an inspector, and a mission panel showing a craft's trajectory,
-altitude and delta-v budget as the clock advances.
+warp clock from 1× to 10⁷×, an inspector, a mission panel showing a craft's trajectory, altitude
+and delta-v budget as the clock advances, and a porkchop plot with a hover readout.
 
 The pure physics core, as a library under `src/core`:
 
@@ -26,6 +28,8 @@ The pure physics core, as a library under `src/core`:
 - Restricted N-body acceleration with patched-conic sphere-of-influence selection
 - Hohmann, bi-elliptic and plane-change transfers
 - Lambert's problem, single revolution
+- Porkchop grids: Lambert cost over departure date × time of flight, with transfer angle and
+  plane tilt per cell
 
 The `src/sim` layer on top of it: the warp clock, the simulation state, impulsive maneuvers in
 the local orbital frame, and trajectory propagation with per-burn segments and delta-v
@@ -41,8 +45,8 @@ npm run dev        # http://localhost:5183
 To check it:
 
 ```
-npm run verify     # typecheck + lint + 367 unit tests + build
-npm run test:e2e   # 17 Playwright tests against the real app
+npm run verify     # typecheck + lint + 449 unit tests + build
+npm run test:e2e   # 26 Playwright tests against the real app
 ```
 
 ## Stack
@@ -88,6 +92,12 @@ position carries roughly 25,000 km of error, which makes Earth–Mars transfer d
 indicative to a few tens of m/s rather than operational. Gravity is Newtonian point-mass:
 no relativity, no J₂, no drag, no solar radiation pressure. These are documented limits,
 not bugs, and they are stated in the UI wherever a number depends on them.
+
+The porkchop plot reports the sum of the two v-infinity speeds, which is the standard
+first-cut comparison and is **not** the delta-v a mission spends: it omits the Oberth effect
+of departing from and capturing into a gravity well. Measured, that omission shifts the
+absolute number by a few percent for Mars and Venus and by 26% for Mercury, while leaving the
+ranking of windows intact (Spearman ρ ≥ 0.9997). PHYSICS.md §11.2 has the table.
 
 ## Licence
 

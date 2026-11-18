@@ -21,10 +21,10 @@ Last full run: `npm run verify` (2026-11-19) and `npx playwright test`.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 367 tests / 18 files                               |
-| Build (`vite build`)        | PASS, 817 kB JS (221 kB gzip)                            |
+| Unit tests (`vitest run`)   | PASS, 449 tests / 20 files                               |
+| Build (`vite build`)        | PASS, 833 kB JS (226 kB gzip)                            |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
-| E2E (`npx playwright test`) | PASS, 17 tests against the real app in headless Chromium |
+| E2E (`npx playwright test`) | PASS, 26 tests against the real app in headless Chromium |
 
 All six were run, not inferred. The e2e suite starts its own dev server and drives the real
 page: it asserts React mounts, a WebGL canvas is created and sized, the clock advances while
@@ -36,6 +36,14 @@ the plan, the orbit radius stays near the planned altitude while running, a node
 applied once the clock passes it, and the trajectory is drawn on the canvas — verified by
 counting orange pixels, 0 before the scenario switch and over a thousand after.
 
+The e2e suite also covers the porkchop plot: the panel starts collapsed and expands, the computed
+grid paints as a gradient with no holes for the default Earth-Mars window, hovering reports the
+cell under the pointer (two well-separated points must give different dates), a hovering readout
+survives the pointer resting still, an all-hole grid paints zero opaque pixels and says so,
+validation blocks a mismatched body pair and an unparseable date without taking the app down, and
+the plot stays usable across a scenario switch. The plot's canvas is 2D, so those tests read it
+back with `getImageData` directly — no screenshot decode needed.
+
 Note on the browser: the paired interactive browser extension was not connected, so
 verification ran through Playwright's Chromium with software GL
 (`--use-gl=swiftshader`). That is a real browser executing the real bundle, but it is not
@@ -43,46 +51,49 @@ the same as a check on a GPU-backed desktop browser.
 
 ## Test inventory
 
-| File                            | Tests | Covers                                                             |
-| ------------------------------- | ----- | ------------------------------------------------------------------ |
-| `tests/vec3.test.ts`            | 18    | vector algebra, rotations, frame conversions                       |
-| `tests/time.test.ts`            | 18    | JD/calendar, leap seconds, GMST, ERA                               |
-| `tests/kepler.test.ts`          | 13    | elliptic + hyperbolic solvers, high-eccentricity cases             |
-| `tests/elements.test.ts`        | 13    | state <-> elements round trips, apsides                            |
-| `tests/twoBody.test.ts`         | 15    | closed-form propagation, energy/angular-momentum conservation      |
-| `tests/integrators.test.ts`     | 16    | RK4 + Dormand-Prince RK45, convergence order, drift                |
-| `tests/ephemeris.test.ts`       | 28    | body positions, velocities, mean motion, SOI                       |
-| `tests/nbody.test.ts`           | 21    | acceleration, dominant body, patched-conic re-parenting            |
-| `tests/lambert.test.ts`         | 35    | Hohmann/bi-elliptic/plane change + Lambert solver                  |
-| `tests/clock.test.ts`           | 21    | warp, step budget, frame-rate independence, formatting             |
-| `tests/simulation.test.ts`      | 15    | epoch/JD handling, body positions, determinism, reset              |
-| `tests/scale.test.ts`           | 17    | scene scale, radius compression, radial mapping                    |
-| `tests/scenario.test.ts`        | 24    | scenario schema, validation errors, bundled catalogue              |
-| `tests/maneuver.test.ts`        | 23    | node frames, magnitudes, ordering, Δv totals                       |
-| `tests/trajectory.test.ts`      | 25    | propagation modes, burns in-frame, Δv accounting, Hohmann arc      |
-| `tests/craft.test.ts`           | 14    | circular orbit states, periods, speeds, surface clearance          |
-| `tests/trajectoryLines.test.ts` | 20    | body-fixed frame, exaggeration, envelope clipping, flown prefix    |
-| `tests/missionView.test.ts`     | 16    | plan/progress split, Δv accounting, interpolation, impacts         |
-| `e2e/shell.spec.ts`             | 17    | boot, WebGL, clock, picking, drag, zoom, scale, scenarios, mission |
+| File                            | Tests | Covers                                                            |
+| ------------------------------- | ----- | ----------------------------------------------------------------- |
+| `tests/vec3.test.ts`            | 18    | vector algebra, rotations, frame conversions                      |
+| `tests/time.test.ts`            | 18    | JD/calendar, leap seconds, GMST, ERA                              |
+| `tests/kepler.test.ts`          | 13    | elliptic + hyperbolic solvers, high-eccentricity cases            |
+| `tests/elements.test.ts`        | 13    | state <-> elements round trips, apsides                           |
+| `tests/twoBody.test.ts`         | 15    | closed-form propagation, energy/angular-momentum conservation     |
+| `tests/integrators.test.ts`     | 16    | RK4 + Dormand-Prince RK45, convergence order, drift               |
+| `tests/ephemeris.test.ts`       | 28    | body positions, velocities, mean motion, SOI                      |
+| `tests/nbody.test.ts`           | 21    | acceleration, dominant body, patched-conic re-parenting           |
+| `tests/lambert.test.ts`         | 35    | Hohmann/bi-elliptic/plane change + Lambert solver                 |
+| `tests/clock.test.ts`           | 21    | warp, step budget, frame-rate independence, formatting            |
+| `tests/simulation.test.ts`      | 15    | epoch/JD handling, body positions, determinism, reset             |
+| `tests/scale.test.ts`           | 17    | scene scale, radius compression, radial mapping                   |
+| `tests/scenario.test.ts`        | 24    | scenario schema, validation errors, bundled catalogue             |
+| `tests/maneuver.test.ts`        | 23    | node frames, magnitudes, ordering, Δv totals                      |
+| `tests/trajectory.test.ts`      | 25    | propagation modes, burns in-frame, Δv accounting, Hohmann arc     |
+| `tests/craft.test.ts`           | 14    | circular orbit states, periods, speeds, surface clearance         |
+| `tests/trajectoryLines.test.ts` | 20    | body-fixed frame, exaggeration, envelope clipping, flown prefix   |
+| `tests/missionView.test.ts`     | 16    | plan/progress split, Δv accounting, interpolation, impacts        |
+| `tests/porkchop.test.ts`        | 34    | grid construction, Lambert agreement, cost/geometry, holes        |
+| `tests/porkchopView.test.ts`    | 48    | colour ramp, image orientation, pointer mapping, ticks, readout   |
+| `e2e/shell.spec.ts`             | 26    | boot, WebGL, clock, picking, drag, zoom, scale, mission, porkchop |
 
 ## Module inventory
 
 `src/core` — pure TypeScript, zero runtime deps, boundary enforced by ESLint:
 
-| Module                            | Status                                  |
-| --------------------------------- | --------------------------------------- |
-| `math/vec3.ts`, `math/numeric.ts` | complete, tested                        |
-| `constants.ts`                    | complete (GM, AU, radii, day constants) |
-| `time/time.ts`                    | complete, tested                        |
-| `orbit/kepler.ts`                 | complete, tested                        |
-| `orbit/elements.ts`               | complete, tested                        |
-| `orbit/twoBody.ts`                | complete, tested                        |
-| `integrate/integrators.ts`        | complete, tested                        |
-| `ephemeris/solarSystem.ts`        | complete (JPL Table 1 verbatim)         |
-| `ephemeris/ephemeris.ts`          | complete, tested                        |
-| `ephemeris/nbody.ts`              | complete, tested                        |
-| `transfer/transfers.ts`           | complete, tested                        |
-| `transfer/lambert.ts`             | complete, tested (single revolution)    |
+| Module                            | Status                                   |
+| --------------------------------- | ---------------------------------------- |
+| `math/vec3.ts`, `math/numeric.ts` | complete, tested                         |
+| `constants.ts`                    | complete (GM, AU, radii, day constants)  |
+| `time/time.ts`                    | complete, tested                         |
+| `orbit/kepler.ts`                 | complete, tested                         |
+| `orbit/elements.ts`               | complete, tested                         |
+| `orbit/twoBody.ts`                | complete, tested                         |
+| `integrate/integrators.ts`        | complete, tested                         |
+| `ephemeris/solarSystem.ts`        | complete (JPL Table 1 verbatim)          |
+| `ephemeris/ephemeris.ts`          | complete, tested                         |
+| `ephemeris/nbody.ts`              | complete, tested                         |
+| `transfer/transfers.ts`           | complete, tested                         |
+| `transfer/lambert.ts`             | complete, tested (single revolution)     |
+| `transfer/porkchop.ts`            | complete, tested (grid of Lambert costs) |
 
 `src/sim` — pure, no DOM, no clock, no RNG:
 
@@ -105,13 +116,15 @@ the same as a check on a GPU-backed desktop browser.
 
 `src/ui`:
 
-| Module             | Status                                                   |
-| ------------------ | -------------------------------------------------------- |
-| `App.tsx`          | complete: viewport, scenario picker, time bar, inspector |
-| `bodyDisplay.ts`   | complete: names, colours, ordering                       |
-| `missionView.ts`   | complete, tested: plan/progress split                    |
-| `MissionPanel.tsx` | complete: readouts, budget, node list                    |
-| `styles.css`       | complete: dark theme, node list, reduced motion          |
+| Module              | Status                                                   |
+| ------------------- | -------------------------------------------------------- |
+| `App.tsx`           | complete: viewport, scenario picker, time bar, inspector |
+| `bodyDisplay.ts`    | complete: names, colours, ordering                       |
+| `missionView.ts`    | complete, tested: plan/progress split                    |
+| `MissionPanel.tsx`  | complete: readouts, budget, node list                    |
+| `porkchopView.ts`   | complete, tested: ramp, image, pointer, ticks, readout   |
+| `PorkchopPanel.tsx` | complete: canvas heat-map, hover readout, collapsible    |
+| `styles.css`        | complete: dark theme, node list, plot, reduced motion    |
 
 `src/scenarios` — schema, validation and the bundled catalogue:
 
@@ -126,22 +139,22 @@ Entry points: `index.html`, `src/main.tsx`, `e2e/shell.spec.ts`, `playwright.con
 cannot view images, so a screenshot is only ever "measured", never "looked at").
 
 Not yet written: the maneuver-node _editor_ (nodes are shown and marked applied, but there is no
-add/edit/delete control yet — `leo-raise` carries its node as scenario data), porkchop, ground
-track, scenario persistence and file import/export.
+add/edit/delete control yet — `leo-raise` carries its node as scenario data), the transfer →
+node workflow, ground track, scenario persistence and file import/export.
 
 ## Milestones
 
-| Milestone                 | Status                                                           |
-| ------------------------- | ---------------------------------------------------------------- |
-| M0 scaffold               | done                                                             |
-| M1 physics foundation     | done                                                             |
-| M2 N-body + solar system  | done                                                             |
-| M3 3D shell               | done (M3.1-M3.6)                                                 |
-| M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
-| M5 mission planning       | M5.1, M5.2 done; porkchop, workflow, scenarios outstanding       |
-| M6 ground track + Moon    | not started                                                      |
-| M7 scenarios + polish     | not started                                                      |
-| M8 hardening              | not started                                                      |
+| Milestone                 | Status                                                             |
+| ------------------------- | ------------------------------------------------------------------ |
+| M0 scaffold               | done                                                               |
+| M1 physics foundation     | done                                                               |
+| M2 N-body + solar system  | done                                                               |
+| M3 3D shell               | done (M3.1-M3.6)                                                   |
+| M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2)   |
+| M5 mission planning       | M5.1, M5.2, M5.3 done; transfer workflow and scenarios outstanding |
+| M6 ground track + Moon    | not started                                                        |
+| M7 scenarios + polish     | not started                                                        |
+| M8 hardening              | not started                                                        |
 
 ## Known limitations carried forward
 
@@ -178,3 +191,17 @@ track, scenario persistence and file import/export.
   53° from the ecliptic. Corrected properly only when the ground track arrives (M6).
 - Maneuver nodes are displayed and marked applied as the clock passes them, but there is no
   add/edit/delete control yet; a node is scenario data. M4.2's UI half stays open in PLAN.md.
+- **Porkchop cost is the sum of the two v-infinity speeds, not parking-orbit delta-v.** The
+  Oberth effect is omitted, so the plot ranks windows correctly (Spearman ρ ≥ 0.9997 on the
+  grids measured, and the parking-orbit optimum landed in the same cell every time) while the
+  absolute number is off: −1% for Mars, +5% for Venus, and 26% _too high_ for Mercury
+  (18.29 plotted against 13.56 km/s of real parking-orbit cost). Stated in the panel and in
+  PHYSICS.md §11.2 rather than corrected, because the correction needs a departure orbit and a
+  capture orbit the grid does not have, and inventing defaults would put an unstated assumption
+  inside a number read as a budget.
+- **Porkchop transfers are single-revolution only**, inherited from `solveLambert`. A cell
+  outside the reachable set is a hole (drawn transparent, readout dashes) rather than a
+  multi-revolution estimate.
+- **The porkchop is heliocentric only.** The Moon is excluded because a lunar transfer is a
+  geocentric problem; a departure or arrival orbit's own radius is not an input, so no
+  departure-escape or capture delta-v is computed.

@@ -187,3 +187,43 @@ the frame loop needs the cheap one at 60 Hz. The split also states the invariant
 progress is derived from the plan and can never disagree with the drawn geometry, because both
 read the same `LocalFrameResult`. Memoising a single function would leave "which half is
 expensive" as folklore.
+
+## D-017 — Porkchop axes are departure date against time of flight
+
+**Choice:** the grid is `departureJdTt × timeOfFlightDays`; arrival is derived as
+`departure + TOF` and reported in the readout but is not an axis.
+**Alternatives:** departure date against arrival date (the other textbook layout); time of
+flight against arrival date.
+**Why:** half of a rectangular date/date grid is unphysical — "arrive before you left" — so the
+valid region is a triangle and either the axis ranges must be narrowed until it fills the box,
+or half the plot is wasted pixels. The departure/TOF layout makes every cell a valid transfer
+by construction. It also puts the _shape_ choice on an axis: a time of flight selects which arc
+you fly, while a departure date is a calendar fact, so the vertical structure of the plot is
+meaningful rather than an artefact of how the grid was cut. The cost is that a user thinking in
+arrival dates has to read one off the hover panel; that is a lookup, not a lost capability.
+
+## D-018 — The porkchop cost is v-infinity sum, and the panel says so
+
+**Choice:** report `v_inf_dep + v_inf_arr` as the cell cost, and state in the panel and in
+PHYSICS.md 11.2 that this is not parking-orbit delta-v and omits the Oberth effect.
+**Alternatives:** convert each cell to a parking-orbit delta-v assuming a fixed departure and
+capture orbit; report C3 alone; report the heliocentric delta-v.
+**Why:** the conversion needs a departure orbit and a capture orbit that the grid does not
+have, and inventing defaults (200 km Earth, 300 km target) would put a made-up assumption
+inside a number the user reads as a budget. The measured consequence of the omission is stated
+rather than hidden: the plot ranks windows to Spearman rho >= 0.9997 but overstates Mercury by
+26% and understates Mars by 1%. Heliocentric delta-v would be worse still — it is off by the
+whole planetary velocity, which is the thing that makes a Hohmann window exist at all.
+
+## D-019 — The porkchop panel is collapsed by default and computes on a button
+
+**Choice:** the tool starts collapsed, expands on a toggle, and computes only when "Compute
+plot" is pressed.
+**Alternatives:** always expanded; recompute on every field edit.
+**Why:** expanded, the panel adds about a thousand pixels to a sidebar that is already
+scrollable, which pushed the body list — a thing every user needs — off the bottom of the
+screen. And a 100x100 grid is 10,000 Lambert solves (~82 ms) which, keyed to a form that
+changes on every keystroke, would run on each character typed. Measuring the sidebar height
+(2083 px open against a 860 px viewport) is what turned this from a hunch into a fix. The last
+successful plot is also kept while the form is edited, so comparing two windows does not blank
+the picture.

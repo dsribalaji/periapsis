@@ -424,6 +424,11 @@ success. See DECISIONS D-008.
   radiation pressure. For LEO over long spans these omissions dominate; the UI says so.
 - **Element precision near apsides** is capped at ~1.5e-8 relative by the conditioning of
   the true anomaly, as described in §2.1.
+- **A porkchop cost is v-infinity, not mission delta-v.** The Oberth effect is omitted (§11.2);
+  the plot ranks windows correctly but its absolute numbers are not a budget.
+- **A porkchop is heliocentric.** Only Sun-centred transfers between planets are plotted. A
+  lunar transfer is a geocentric problem, so the Moon is excluded from the body list rather
+  than solved with the Sun's mu and returned as a confident wrong answer (§11.1).
 
 ## 10. Display conventions and what they cost
 
@@ -498,3 +503,142 @@ These are geometric identities, not approximations, so they are asserted tightly
 - **Segment times are strictly ascending**, so "already flown" is always a prefix and
   `drawRange` can encode it. A mid-path envelope clip drops segments but does not reorder
   them.
+
+## 11. Porkchop plots
+
+A porkchop plot answers _when should this transfer leave?_ by solving Lambert's problem on a
+grid of departure dates and times of flight and reporting the cost of each cell. It needs no
+optimiser: the expensive part is a table, and the answer is a minimum over that table.
+
+### 11.1 What one cell is
+
+For departure `t_dep` and time of flight `T`:
+
+```text
+r1 = r_departure(t_dep)          r2 = r_arrival(t_dep + T)
+solve Lambert(r1, r2, T, mu_sun) -> v1, v2
+v_inf_dep = |v1 - v_body_dep(t_dep)|        v_inf_arr = |v2 - v_body_arr(t_dep + T)|
+cost      = v_inf_dep + v_inf_arr           C3 = v_inf_dep^2
+```
+
+Two implementation details are load-bearing:
+
+- **Body velocities are central differences of the shipped position function**, with the same
+  600 s step used by `sim/trajectory.ts`, not an analytic derivative with constant elements.
+  The elements are advanced linearly in time, so the honest velocity is the derivative of the
+  function that actually produces positions; an analytic derivative with frozen elements omits
+  the rate terms and disagrees with the propagator. The helper is duplicated in
+  `core/transfer/porkchop.ts` rather than imported, because the dependency direction is
+  sim -> core and never the reverse.
+- **Departure positions are computed once per column.** Arrival time is `departure + T`, which
+  depends on both axes, so it cannot be hoisted; a 100x100 grid still needs 10,000 arrival
+  ephemeris calls, but the departure half costs 100 instead of 10,000.
+
+Measured cost, single-threaded, Node 24: 60x60 in 45 ms, 100x100 in 82 ms, 140x140 in 150 ms,
+200x200 in 342 ms. The panel therefore computes on a button press rather than on every
+keystroke.
+
+### 11.2 The cost is v-infinity, not delta-v from a parking orbit
+
+`cost = v_inf_dep + v_inf_arr` is the standard "patch" comparison. It is **not** the delta-v a
+mission spends, because the real departure burn happens deep in a gravity well and benefits
+from the Oberth effect. The correct figure for a departure from a circular orbit of radius `r`
+is
+
+```text
+dv_dep = sqrt(v_esc^2 + v_inf^2) - v_circ
+```
+
+which is _less_ than `v_inf`: leaving a 200 km Earth orbit for Mars with 3.06 km/s of
+v-infinity costs about 3.6 km/s, not 3.06.
+
+**The transformation does not preserve differences**, so the plotted number cannot be corrected
+by a constant offset, and the error is not small in general. Measured over Earth-departure
+grids with a 200 km Earth parking orbit and a 300 km capture orbit at the target:
+
+| Target  | Plot minimum | Parking-orbit dv at the same cell | Gap  | Rank correlation |
+| ------- | ------------ | --------------------------------- | ---- | ---------------- |
+| Mars    | 5.62 km/s    | 5.69 km/s                         | +1%  | 0.9997           |
+| Venus   | 6.95 km/s    | 7.31 km/s                         | +5%  | 0.9999           |
+| Mercury | 18.29 km/s   | 13.56 km/s                        | -26% | 0.9998           |
+
+So the plot **ranks windows correctly** - Spearman rho >= 0.9997 on every grid measured, and
+the parking-orbit optimum fell in the same cell in all three cases - while the absolute number
+can be wrong by a quarter, in the direction that matters most: for Mercury the plot makes a
+hard mission look _harder_ than it is, because a fast burn deep in the well is exactly where
+the Oberth effect pays best. The maximum per-cell discrepancy on those grids was 9-13 km/s,
+i.e. the transform is a large monotone-ish distortion, not a small correction.
+
+What is deliberately omitted: the capture orbit at the target is not modelled as a choice, the
+departure orbit is not an input, and plane changes are not costed separately - the Lambert
+solution absorbs the geometry into v-infinity. The panel states this in one caveat line rather
+than leaving the number to be mistaken for a budget.
+
+### 11.3 Axes: departure date against time of flight
+
+Departure-versus-arrival is the other common layout. It is a worse default:
+
+- Half of a rectangular date/date grid is unphysical ("arrive before you left"), so the useful
+  region is a triangle: either the axis ranges are narrowed until the triangle fills the box,
+  or half the plot is wasted.
+- A time of flight is a _shape_ choice - it selects which arc you fly - while a departure date
+  is a calendar fact. Putting the shape on an axis makes the vertical structure mean
+  something.
+
+Recorded as DECISIONS D-017.
+
+### 11.4 Grid geometry, holes and colour
+
+- **A cell with no single-revolution solution is `NaN` and drawn transparent.** Twenty minutes
+  to Mars is beyond the model (8.4 rejects the rectilinear plunge on speed grounds), so the
+  panel shows holes and the summary says no arc exists, rather than printing a plausible wrong
+  cost. A zero would be indistinguishable from a free transfer.
+- **Colour scaling uses the 2nd and 98th percentile of converged cells**, not min and max. A
+  grid almost always contains near-grazing cells costing ten times the useful window, and
+  scaling to the maximum compresses the whole decision into the first two percent of the ramp.
+  Both quantiles are parameters, so the choice is visible at the call site.
+- **The image buffer is one pixel per cell with row 0 at the top of the plot**, i.e. the
+  longest time of flight. The grid stores rows shortest-first, so `porkchopImage` flips exactly
+  once. One flip in one function is testable; a flip per consumer is not.
+- **Pointer-to-cell uses `floor`, not `round`.** The drawn image divides the box into `columns`
+  equal strips, so the strip containing the pointer is the honest answer; `round` would leave
+  the outermost half-strip unselectable.
+
+### 11.5 Plane tilt is reported because it explains a cell
+
+`planeTiltDeg` is the angle between the transfer-plane normal `r1 x r2` and the ecliptic pole.
+It is in the readout for one reason: it is the explanation for a neighbouring cell costing ten
+times more. A transfer plane must contain the Sun and both endpoints, so when those endpoints
+are nearly opposite the plane is nearly undetermined - a tiny change in either position rotates
+it by tens of degrees - and the cheap coplanar arc may not exist at that geometry.
+
+The measured relationship, asserted in `tests/porkchop.test.ts`: at comparable transfer angle,
+the cheapest cell with tilt under 10 degrees beats the cheapest with tilt over 10 degrees by
+more than 1.3x (measured 6.85 vs 11.03 km/s at 160-170 degrees, 7.37 vs 11.21 at 170-175,
+7.74 vs 12.47 at 175-179). The tempting claim "near 180 degrees is always expensive" is
+**false** and is not asserted: cheap cells do exist near 180 when the geometry happens to give
+a nearly coplanar plane.
+
+### 11.6 Tolerances
+
+- **Reproduces its own Lambert solve, 1e-3 m/s.** One cell is recomputed from scratch -
+  independent body positions, independent central-difference velocities, independent
+  `solveLambert` call - and the reported v-infinity must match. The tolerance is a millimetre
+  per second out of kilometres per second: the arithmetic is identical, so anything above
+  rounding is a wiring error (wrong body, wrong time, swapped departure and arrival).
+- **C3 is exactly `v_inf_dep^2`**, to 3 decimal places in m^2/s^2. An identity, not a
+  measurement.
+- **Every cell of a 20x20 Earth-Mars grid converges.** That grid is well inside the reachable
+  set, so a hole there means the solver rather than the geometry: asserted as exactly 0 holes.
+- **The Earth-Mars minimum is 5.4-5.9 km/s**, against the coplanar-circular Hohmann reference
+  of 5.594. Real bodies are eccentric and inclined, so a Lambert minimum can only be higher;
+  a range is asserted rather than a value to keep this a physics test. Measured 5.62.
+- **The minimum departs in Aug-Nov 2026** with a time of flight of 250-360 d (the Hohmann
+  half-period is 259 d). Measured: 2026-10-26, 314 d.
+- **The optimal cell has plane tilt under 5 degrees** for Earth-Mars: a tens-of-degrees tilt
+  would mean the solver chose a physically different, much more expensive arc.
+- **The tilt relationship, 1.3x**: see 11.5. The factor is a conservative floor under
+  measurements of 1.6-1.8x.
+- **The display layer's identities, 1e-9**: the image is `columns x rows` pixels; a
+  transparent cell is exactly a `NaN` cell; `cellFromFraction` round-trips `fractionOfCell` for
+  every cell in the grid.

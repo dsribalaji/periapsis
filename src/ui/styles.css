@@ -318,6 +318,147 @@ select:focus-visible {
   text-align: right;
 }
 
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 68px;
+  min-width: 0;
+}
+
+.field > span {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+}
+
+.field > input,
+.field > select {
+  width: 100%;
+  min-width: 0;
+}
+
+.issue-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11px;
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+/* The plot is a grid of cells stretched by CSS, so the drawing code never needs a size. */
+.porkchop-figure {
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+}
+
+.porkchop-plot {
+  position: relative;
+  flex: 1;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.porkchop-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.porkchop-marker {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+.porkchop-yaxis {
+  position: relative;
+  width: 34px;
+  flex: 0 0 auto;
+}
+
+.porkchop-yaxis span,
+.porkchop-xaxis span {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.porkchop-yaxis span {
+  right: 0;
+  transform: translateY(50%);
+}
+
+.porkchop-xaxis {
+  position: relative;
+  height: 13px;
+  margin-left: 38px;
+  margin-right: 1px;
+}
+
+.porkchop-xaxis span {
+  transform: translateX(-50%);
+}
+
+.porkchop-axis-note {
+  font-size: 10px;
+  text-align: center;
+  margin-top: -2px;
+}
+
+.section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/*
+ * `display: flex` above wins over the `hidden` attribute's UA `display: none`, so a collapsed
+ * panel would stay fully laid out and visible. Restore it explicitly rather than relying on
+ * the user-agent stylesheet.
+ */
+.section-body[hidden] {
+  display: none;
+}
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-dim);
+  font-weight: 600;
+  font-family: var(--sans);
+  cursor: pointer;
+}
+
+.section-toggle:hover:not(:disabled) {
+  background: none;
+  color: var(--text);
+}
+
+.section-toggle .chevron {
+  font-size: 10px;
+  width: 8px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

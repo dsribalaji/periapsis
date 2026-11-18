@@ -35,6 +35,7 @@ import {
   type MissionProgress,
 } from './missionView.js';
 import { MissionPanel } from './MissionPanel.js';
+import { PorkchopPanel } from './PorkchopPanel.js';
 
 const INITIAL_SCENARIO = defaultScenario();
 
@@ -358,6 +359,8 @@ export function App(): React.JSX.Element {
         </div>
 
         {plan && <MissionPanel plan={plan} progress={progress} testid="mission" />}
+
+        <PorkchopPanel epochUtc={scenario.epochUtc} />
 
         <div className="section">
           <h2>Bodies</h2>

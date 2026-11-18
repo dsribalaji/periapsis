@@ -32,8 +32,11 @@ test.describe('application shell', () => {
 
   test('lists every body with a distance readout', async ({ page }) => {
     await page.goto('/');
+    // Scoped to the body list on purpose: the porkchop form also has <option> elements named
+    // after planets, and a bare text match would find those (hidden) first.
+    const list = page.locator('.body-list');
     for (const name of ['Sun', 'Mercury', 'Venus', 'Earth', 'Moon', 'Mars', 'Neptune']) {
-      await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+      await expect(list.getByText(name, { exact: true }).first()).toBeVisible();
     }
   });
 
@@ -301,5 +304,191 @@ test.describe('mission and maneuvers', () => {
     // view, so hundreds of pixels is the floor and a few stray antialiased pixels cannot pass.
     expect(before).toBeLessThan(50);
     expect(after).toBeGreaterThan(400);
+  });
+});
+
+test.describe('porkchop plot', () => {
+  /** Reads the plot canvas back. It is a 2D canvas, so `getImageData` works directly. */
+  const readPlot = async (
+    page: import('@playwright/test').Page,
+  ): Promise<{ opaque: number; colours: number; total: number }> =>
+    page.evaluate(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="porkchop-canvas"]');
+      if (!canvas) throw new Error('no porkchop canvas');
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('no 2d context');
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+      let opaque = 0;
+      const seen = new Set<string>();
+      for (let i = 0; i < data.length; i += 4) {
+        if ((data[i + 3] ?? 0) === 0) continue;
+        opaque++;
+        seen.add(`${data[i]},${data[i + 1]},${data[i + 2]}`);
+      }
+      return { opaque, colours: seen.size, total: data.length / 4 };
+    });
+
+  /** Expands the panel and computes the default plot. The panel starts collapsed. */
+  const openAndCompute = async (page: import('@playwright/test').Page): Promise<void> => {
+    const toggle = page.getByTestId('porkchop-toggle');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await page.getByTestId('porkchop-compute').click();
+  };
+
+  /**
+   * Hovers a fractional point of the plot and returns the readout's first field.
+   *
+   * The plot sits low in a scrolling sidebar — at Playwright's default 720 px viewport its
+   * lower half is below the fold, and `mouse.move` to a point outside the window silently
+   * does nothing. Scrolling it into view first is what makes the hover an actual hover rather
+   * than a test of the pointer's ability to leave the page.
+   */
+  const hoverPlot = async (
+    page: import('@playwright/test').Page,
+    fx: number,
+    fy: number,
+  ): Promise<void> => {
+    const canvas = page.getByTestId('porkchop-canvas');
+    await canvas.scrollIntoViewIfNeeded();
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('porkchop canvas has no box');
+    await page.mouse.move(box.x + box.width * fx, box.y + box.height * fy);
+  };
+
+  test('starts collapsed so it cannot crowd out the rest of the sidebar', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('porkchop-toggle')).toHaveAttribute('aria-expanded', 'false');
+    // The body list is the thing the panel was crowding off the bottom of the sidebar.
+    await expect(page.locator('.body-list').getByText('Neptune', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('porkchop-compute')).toBeHidden();
+  });
+
+  test('computes a plot and paints it', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('porkchop')).toBeVisible();
+    // Nothing is drawn until asked: 10,000 Lambert solves are not a page-load cost.
+    await expect(page.getByTestId('porkchop-canvas')).toHaveCount(0);
+
+    await openAndCompute(page);
+    await expect(page.getByTestId('porkchop-canvas')).toBeVisible({ timeout: 20_000 });
+
+    // Every cell converges for the default Earth-Mars window, and the ramp must produce a
+    // gradient rather than one flat colour: a flat plot would mean the colour range collapsed.
+    const plot = await readPlot(page);
+    expect(plot.opaque).toBe(plot.total);
+    expect(plot.colours).toBeGreaterThan(20);
+  });
+
+  test('reports the cheapest window in words', async ({ page }) => {
+    await page.goto('/');
+    await openAndCompute(page);
+    const summary = page.getByTestId('porkchop-summary');
+    await expect(summary).toContainText('Cheapest window', { timeout: 20_000 });
+    // The default window starts at the scenario's epoch year, so the best cell is in it.
+    // Measured: 2026-10-26 departure, 314 d, 5.63 km/s, which is the real 2026 Mars window.
+    await expect(summary).toContainText('km/s');
+    await expect(summary).toContainText('C3');
+    await expect(summary).toContainText('depart 2026-');
+    // A summary of a converged grid must never also claim there is no arc.
+    await expect(summary).not.toContainText('No single-revolution arc');
+  });
+
+  test('hovering the plot reports the cell under the pointer', async ({ page }) => {
+    await page.goto('/');
+    await openAndCompute(page);
+    await expect(page.getByTestId('porkchop-canvas')).toBeVisible({ timeout: 20_000 });
+
+    const readout = page.getByTestId('porkchop-readout');
+    await expect(readout.locator('dd').first()).toHaveText('--');
+
+    // Two points well apart must report different cells: a readout that ignored the pointer
+    // would still pass a single-hover test.
+    await hoverPlot(page, 0.25, 0.3);
+    const firstCell = readout.locator('dd').first();
+    await expect(firstCell).not.toHaveText('--');
+    const first = (await firstCell.textContent()) ?? '';
+
+    await hoverPlot(page, 0.75, 0.7);
+    await expect(firstCell).not.toHaveText(first);
+
+    // The marker is placed as a percentage, so a non-empty left proves it was positioned.
+    const markerLeft = await page
+      .locator('.porkchop-marker')
+      .evaluate((el) => (el as HTMLElement).style.left);
+    expect(markerLeft).not.toBe('');
+  });
+
+  test('hovering survives the pointer resting still, as the layout must not move', async ({
+    page,
+  }) => {
+    // The readout is a fixed-height block precisely so that filling it in cannot reflow the
+    // sidebar and slide the plot out from under the pointer. This is the regression test for
+    // that: hover once, wait, and the same cell must still be reported.
+    await page.goto('/');
+    await openAndCompute(page);
+    await expect(page.getByTestId('porkchop-canvas')).toBeVisible({ timeout: 20_000 });
+
+    await hoverPlot(page, 0.4, 0.4);
+    const first = page.getByTestId('porkchop-readout').locator('dd').first();
+    await expect(first).not.toHaveText('--');
+    const parked = (await first.textContent()) ?? '';
+    await page.waitForTimeout(700);
+    await expect(first).toHaveText(parked);
+  });
+
+  test('rejects a mismatched body pair instead of computing', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('porkchop-toggle').click();
+    // Earth to Earth: no transfer exists, so the button must be off.
+    await page.getByLabel('Arrival body').selectOption('earth');
+    await expect(page.getByTestId('porkchop-issues')).toContainText('must be different');
+    await expect(page.getByTestId('porkchop-compute')).toBeDisabled();
+  });
+
+  test('reports an unparseable date window without crashing', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('porkchop-toggle').click();
+    await page.getByLabel('Departure window start').fill('not a date');
+    await expect(page.getByTestId('porkchop-issues')).toContainText('not a valid date');
+    await expect(page.getByTestId('porkchop-compute')).toBeDisabled();
+    // The rest of the app still works.
+    await expect(page.getByRole('heading', { name: 'Periapsis' })).toBeVisible();
+  });
+
+  test('leaves holes transparent where no transfer exists', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('porkchop-toggle').click();
+    // Twenty minutes to Mars: no single-revolution arc exists anywhere in this range.
+    await page.getByLabel('Shortest time of flight, days').fill('0.01');
+    await page.getByLabel('Longest time of flight, days').fill('0.014');
+    await page.getByTestId('porkchop-compute').click();
+    await expect(page.getByTestId('porkchop-canvas')).toBeVisible({ timeout: 20_000 });
+
+    // Every cell must be a hole, and the panel must say so rather than printing a plausible
+    // cost. Measured: 0 opaque pixels.
+    const plot = await readPlot(page);
+    expect(plot.opaque).toBe(0);
+    await expect(page.getByTestId('porkchop-summary')).toContainText('No single-revolution arc');
+    // And hovering a hole reports dashes, not NaN.
+    await hoverPlot(page, 0.5, 0.5);
+    await expect(page.getByTestId('porkchop-readout').locator('dd').first()).toHaveText('--');
+  });
+
+  test('stays usable across a scenario switch', async ({ page }) => {
+    await page.goto('/');
+    await openAndCompute(page);
+    await expect(page.getByTestId('porkchop-canvas')).toBeVisible({ timeout: 20_000 });
+
+    // earth-moon is a 2027 epoch, so the seeded window moves; the panel must still work.
+    await page.getByLabel('Scenario').selectOption('earth-moon');
+    await page.getByTestId('porkchop-compute').click();
+    await expect(page.getByTestId('porkchop-summary')).toContainText('Cheapest window', {
+      timeout: 20_000,
+    });
+    // Measured: the 2027-onward window's best Earth-Mars departure is 2028-11-27 at 6.01 km/s,
+    // i.e. a later synodic window was found rather than the 2026 one that is no longer in range.
+    await expect(page.getByTestId('porkchop-summary')).toContainText(/depart 202[7-9]-/);
   });
 });

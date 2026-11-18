@@ -110,6 +110,18 @@ picking, camera orbit/zoom, the drawn trajectories and the craft marker.
 per scenario or node change, and `missionProgress` answers "where is it now, what has it spent"
 from the finished plan. `MissionPanel.tsx` is presentational and computes nothing.
 
+`porkchopView.ts` is the same split for the transfer plot: the colour ramp, the RGBA image
+buffer, the pointer-to-cell mapping, the axis ticks, the hover readout and the summary sentence
+are all pure and unit-tested, and `PorkchopPanel.tsx` owns only the canvas, the form and the
+`putImageData` call. A canvas is the one part of the app a unit test cannot reach, so the rule is
+that nothing which could be wrong lives inside it. The buffer is one pixel per grid cell and the
+browser scales it, which makes the painting a single call and the orientation a testable fact
+(see PHYSICS.md §11.4).
+
+`core/transfer/porkchop.ts` is the grid itself: it must not import `src/sim` (the dependency
+direction is sim → core), so the central-difference body velocity is duplicated rather than
+shared. That duplication is deliberate and commented in both places.
+
 ## Frame convention
 
 Physics uses a right-handed frame with +z toward the ecliptic north pole. Three.js has +y up.

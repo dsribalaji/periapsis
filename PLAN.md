@@ -82,7 +82,12 @@ delete one. Those items stay unticked rather than being checked off on the stren
 
 - [x] M5.1 Hohmann + bi-elliptic calculators with analytic tests
 - [x] M5.2 Lambert solver (documented algorithm), textbook Earth-Mars validation
-- [ ] M5.3 Porkchop plot computation + heat-map view with hover readout
+- [x] M5.3 Porkchop plot computation + heat-map view with hover readout
+      — `core/transfer/porkchop.ts` (grid) and `ui/porkchopView.ts` (colour ramp, image
+      buffer, pointer mapping, axis ticks, readout, summary), `ui/PorkchopPanel.tsx` (canvas
+      and form), 82 unit tests, 9 e2e tests. The panel starts collapsed (D-019). Cost is the
+      v-infinity sum, not parking-orbit delta-v (D-018, PHYSICS.md §11.2). Screenshot
+      `screenshots/m5-porkchop.png`, measured by `scripts/inspect-screenshot.mjs`.
 - [ ] M5.4 Transfer -> maneuver-node workflow
 - [ ] M5.5 GTO and Earth-Mars scenarios
 

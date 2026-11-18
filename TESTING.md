@@ -61,12 +61,29 @@ clock on screen advances" is an e2e test. The overlap is deliberately small.
 | WebGL canvas readback           | `readPixels` returns blank after compositing                         | Screenshot the element and decode the PNG in-page                     |
 | Clock readout assertions        | The clock is running, so any time-of-day assertion races             | Assert something that does not move (the epoch label), or pause first |
 | Dev server in a piped shell     | Background shells die when piped through `Select-Object`             | Let Playwright start the server itself                                |
+| 2D canvas in the sidebar        | Its lower half is below the fold at 1280x720, so `mouse.move` misses | `scrollIntoViewIfNeeded` before computing the hover point             |
+| `display: flex` on a container  | It beats the `hidden` attribute's UA `display: none`                 | Add an explicit `[hidden] { display: none }` rule                     |
+| A form option named like a body | `<option>Mars</option>` makes `getByText('Mars').first()` the option | Scope the locator to the region under test (`.body-list`)             |
+
+A fourth rule, learned the hard way in M5.3: **a test that hovers must also prove the hover
+survives.** Replacing a short hint with a tall list reflows the sidebar, which moves the plot
+out from under the pointer, which clears the hover — the readout flickers between "hovered" and
+"not hovered" forever, and a single `mouse.move` followed by an assertion passes on the first
+frame of that oscillation. The regression test hovers once and then asserts the _same_ cell an
+idle 700 ms later; the fix was a fixed-height readout block that is always present.
 
 ## Coverage
 
 `vitest` reports coverage over `src/core`, `src/sim` and `src/scenarios` only. `src/render` and
 `src/ui` are covered by e2e instead: a line-coverage number for a WebGL scene measures that
 lines ran, not that anything was drawn.
+
+The exception is `src/ui/porkchopView.ts`, which is pure and unit tested even though it lives in
+`src/ui`. The rule is not "which folder" but "can it be tested without a browser": the colour
+ramp, the image buffer and its orientation, the pointer-to-cell mapping, the axis ticks and the
+hover readout are all arithmetic, so they are asserted directly and the canvas keeps only the
+`putImageData` call. That canvas is 2D, so its e2e test reads it back with `getImageData`
+directly — the screenshot-decode path below is only needed for the WebGL view.
 
 Note on screenshots: the agent building this cannot view images, so a screenshot is never
 evidence in itself. `scripts/inspect-screenshot.mjs <file>` decodes one and reports its
