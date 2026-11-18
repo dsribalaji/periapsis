@@ -180,7 +180,7 @@ export function perifocalToInertialRotation(
 
 /** Specific orbital energy per unit mass, J/kg (negative for elliptic). */
 export const specificEnergy = (state: StateVector, mu: number): number =>
-  (dot(state.v, state.v) / 2) - mu / length(state.r);
+  dot(state.v, state.v) / 2 - mu / length(state.r);
 
 /** Specific angular momentum magnitude, m²/s. */
 export const specificAngularMomentum = (state: StateVector): number =>
@@ -193,8 +193,7 @@ export function orbitalPeriod(a: number, mu: number): number {
 }
 
 /** Mean motion in rad/s. */
-export const meanMotion = (a: number, mu: number): number =>
-  Math.sqrt(mu / Math.abs(a * a * a));
+export const meanMotion = (a: number, mu: number): number => Math.sqrt(mu / Math.abs(a * a * a));
 
 /** Periapsis and apoapsis radii in metres (apoapsis is Infinity for hyperbolic). */
 export const apsides = (a: number, e: number): { periapsis: number; apoapsis: number } => ({

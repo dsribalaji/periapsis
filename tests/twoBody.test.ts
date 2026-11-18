@@ -5,7 +5,14 @@ import {
   meanAnomalyFromTrue,
   hyperbolicMeanFromTrue,
 } from '../src/core/orbit/twoBody.js';
-import { elementsToState, stateToElements, specificEnergy, specificAngularMomentum, orbitalPeriod, apsides } from '../src/core/orbit/elements.js';
+import {
+  elementsToState,
+  stateToElements,
+  specificEnergy,
+  specificAngularMomentum,
+  orbitalPeriod,
+  apsides,
+} from '../src/core/orbit/elements.js';
 import { vec3, length, sub } from '../src/core/math/vec3.js';
 import { GM } from '../src/core/constants.js';
 import fc from 'fast-check';
@@ -14,7 +21,13 @@ const MU = GM.earth;
 
 function leoState(a = 6778e3, e = 0.001) {
   return elementsToState({
-    a, e, i: 0.9, raan: 1.2, argPeriapsis: 0.4, trueAnomaly: 0.7, mu: MU,
+    a,
+    e,
+    i: 0.9,
+    raan: 1.2,
+    argPeriapsis: 0.4,
+    trueAnomaly: 0.7,
+    mu: MU,
   });
 }
 
@@ -50,7 +63,13 @@ describe('two-body propagation', () => {
         (dt, x) => {
           const nuShift = x;
           const start = elementsToState({
-            a: 7000e3, e: 0.05, i: 0.5, raan: 0.2, argPeriapsis: 0.1, trueAnomaly: nuShift, mu: MU,
+            a: 7000e3,
+            e: 0.05,
+            i: 0.5,
+            raan: 0.2,
+            argPeriapsis: 0.1,
+            trueAnomaly: nuShift,
+            mu: MU,
           });
           const fwd = propagateTwoBody(start, MU, dt);
           const back = propagateTwoBody(fwd, MU, -dt);
@@ -81,7 +100,13 @@ describe('two-body propagation', () => {
     const e = 0.2;
     const { periapsis } = apsides(a, e);
     const s = elementsToState({
-      a, e, i: 0, raan: 0, argPeriapsis: 0, trueAnomaly: Math.PI / 2, mu: MU,
+      a,
+      e,
+      i: 0,
+      raan: 0,
+      argPeriapsis: 0,
+      trueAnomaly: Math.PI / 2,
+      mu: MU,
     });
     const el = stateToElements(s, MU);
     expect(el.a).toBeCloseTo(a, -2);
@@ -95,7 +120,13 @@ describe('two-body propagation', () => {
 
   it('propagates hyperbolic orbits', () => {
     const s = elementsToState({
-      a: -25000e3, e: 1.4, i: 0.3, raan: 0.5, argPeriapsis: 0.2, trueAnomaly: 0.1, mu: MU,
+      a: -25000e3,
+      e: 1.4,
+      i: 0.3,
+      raan: 0.5,
+      argPeriapsis: 0.2,
+      trueAnomaly: 0.1,
+      mu: MU,
     });
     const p = propagateTwoBody(s, MU, 3600);
     expect(length(p.r)).toBeGreaterThan(length(s.r));
@@ -157,6 +188,8 @@ describe('degenerate input handling', () => {
   });
 
   it('rejects a rectilinear state', () => {
-    expect(() => stateToElements({ r: vec3(7e6, 0, 0), v: vec3(100, 0, 0) }, MU)).toThrow(/rectilinear/);
+    expect(() => stateToElements({ r: vec3(7e6, 0, 0), v: vec3(100, 0, 0) }, MU)).toThrow(
+      /rectilinear/,
+    );
   });
 });

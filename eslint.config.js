@@ -37,7 +37,11 @@ export default tseslint.config(
       'no-restricted-properties': [
         'error',
         { object: 'Date', property: 'now', message: 'Core is deterministic: pass time in.' },
-        { object: 'Math', property: 'random', message: 'Core is deterministic: pass randomness in.' },
+        {
+          object: 'Math',
+          property: 'random',
+          message: 'Core is deterministic: pass randomness in.',
+        },
       ],
       'no-restricted-globals': [
         'error',

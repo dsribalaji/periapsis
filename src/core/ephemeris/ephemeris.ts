@@ -107,11 +107,7 @@ export function orbToEcliptic(
   const p22 = -sw * sO + cw * cO * cI;
   const p32 = cw * sI;
 
-  return vec3(
-    p11 * xOrb + p12 * yOrb,
-    p21 * xOrb + p22 * yOrb,
-    p31 * xOrb + p32 * yOrb,
-  );
+  return vec3(p11 * xOrb + p12 * yOrb, p21 * xOrb + p22 * yOrb, p31 * xOrb + p32 * yOrb);
 }
 
 /**
@@ -156,7 +152,8 @@ export function meanMotionFromElementRates(el: MeanElements): number {
 }
 
 /** Days -> Julian date offset helper for callers working in seconds. */
-export const jdPlusSeconds = (jd: number, seconds: number): number => jd + seconds / SECONDS_PER_DAY;
+export const jdPlusSeconds = (jd: number, seconds: number): number =>
+  jd + seconds / SECONDS_PER_DAY;
 
 /** Seconds between two Julian dates. */
 export const secondsBetweenJd = (jdA: number, jdB: number): number => (jdB - jdA) * SECONDS_PER_DAY;

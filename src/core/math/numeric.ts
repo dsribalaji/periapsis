@@ -1,8 +1,7 @@
 /** Small numerical helpers shared by the physics core. Pure functions only. */
 
 /** Clamps `x` into [lo, hi]. */
-export const clamp = (x: number, lo: number, hi: number): number =>
-  x < lo ? lo : x > hi ? hi : x;
+export const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
 
 /** Normalises an angle into [0, 2π). */
 export const wrapTwoPi = (angle: number): number => {

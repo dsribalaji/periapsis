@@ -20,7 +20,12 @@ import { elementsToState, specificEnergy } from '../src/core/orbit/elements.js';
 const JD_2026 = jdFromIsoUtc('2026-11-18T00:00:00Z');
 
 /** Position offset from a body by a distance along a fixed direction. */
-function offsetFrom(id: Parameters<typeof bodyPosition>[0], jd: number, distance: number, dir = vec3(1, 0.3, 0.1)) {
+function offsetFrom(
+  id: Parameters<typeof bodyPosition>[0],
+  jd: number,
+  distance: number,
+  dir = vec3(1, 0.3, 0.1),
+) {
   return add(bodyPosition(id, jd), scale(normalize(dir), distance));
 }
 
@@ -129,7 +134,13 @@ describe('force function adapter', () => {
     const jd = JD_2026;
     const earth = bodyPosition('earth', jd);
     const s = elementsToState({
-      a: 6778e3, e: 0.0001, i: 0.5, raan: 0.3, argPeriapsis: 0.2, trueAnomaly: 0, mu: GM.earth,
+      a: 6778e3,
+      e: 0.0001,
+      i: 0.5,
+      raan: 0.3,
+      argPeriapsis: 0.2,
+      trueAnomaly: 0,
+      mu: GM.earth,
     });
     const relR = s.r;
     const start = { t: 0, r: add(earth, relR), v: s.v };

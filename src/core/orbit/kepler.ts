@@ -128,5 +128,4 @@ export function trueToHyperbolicAnomaly(nu: number, e: number): number {
 }
 
 /** Hyperbolic mean anomaly from H. */
-export const hyperbolicToMeanAnomaly = (H: number, e: number): number =>
-  e * Math.sinh(H) - H;
+export const hyperbolicToMeanAnomaly = (H: number, e: number): number => e * Math.sinh(H) - H;

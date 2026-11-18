@@ -9,7 +9,12 @@ import {
 } from '../src/core/integrate/integrators.js';
 import { vec3, length, sub } from '../src/core/math/vec3.js';
 import { GM } from '../src/core/constants.js';
-import { elementsToState, specificEnergy, specificAngularMomentum, orbitalPeriod } from '../src/core/orbit/elements.js';
+import {
+  elementsToState,
+  specificEnergy,
+  specificAngularMomentum,
+  orbitalPeriod,
+} from '../src/core/orbit/elements.js';
 import { propagateTwoBody } from '../src/core/orbit/twoBody.js';
 
 const MU = GM.earth;
@@ -25,7 +30,13 @@ const pointMass: AccelerationFn = (_t, r) => {
 
 function leoStart(dtRef = T0): IntegratorState {
   const s = elementsToState({
-    a: 6778e3, e: 0.0005, i: 0.9, raan: 1.2, argPeriapsis: 0.4, trueAnomaly: 0.7, mu: MU,
+    a: 6778e3,
+    e: 0.0005,
+    i: 0.9,
+    raan: 1.2,
+    argPeriapsis: 0.4,
+    trueAnomaly: 0.7,
+    mu: MU,
   });
   return { t: dtRef, r: s.r, v: s.v };
 }
@@ -112,12 +123,23 @@ describe('Dormand-Prince RK45 adaptive', () => {
     // So RK45 reaches between the two RK4 accuracies with ~4x fewer evaluations than the
     // h=30 s case and ~12x fewer than h=10 s. Asserted as evaluations, not wall time,
     // so the test is machine-independent.
-    const el = { a: 26560e3, e: 0.74, i: 1.1, raan: 1.2, argPeriapsis: 4.7, trueAnomaly: 0.7, mu: MU };
+    const el = {
+      a: 26560e3,
+      e: 0.74,
+      i: 1.1,
+      raan: 1.2,
+      argPeriapsis: 4.7,
+      trueAnomaly: 0.7,
+      mu: MU,
+    };
     const s = elementsToState(el);
     const start: IntegratorState = { t: T0, r: s.r, v: s.v };
     const T = orbitalPeriod(el.a, MU);
 
-    const adaptive = integrateAdaptive(start, pointMass, T0 + 5 * T, { relTol: 1e-10, maxStep: 600 });
+    const adaptive = integrateAdaptive(start, pointMass, T0 + 5 * T, {
+      relTol: 1e-10,
+      maxStep: 600,
+    });
     const fixed = integrateFixed(start, pointMass, T0 + 5 * T, 30);
 
     expect(adaptive.evaluations).toBeLessThan(fixed.evaluations / 2);

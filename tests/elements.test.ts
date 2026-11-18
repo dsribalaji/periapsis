@@ -70,10 +70,7 @@ describe('elements <-> state', () => {
    * relative velocity error through the √(mu/p) term. The degenerate cases e = 0 and
    * i = 0 / π are covered explicitly instead. Documented in PHYSICS.md §5.
    */
-  const ecce = fc.oneof(
-    fc.constant(0),
-    fc.double({ min: 1e-6, max: 0.95, noNaN: true }),
-  );
+  const ecce = fc.oneof(fc.constant(0), fc.double({ min: 1e-6, max: 0.95, noNaN: true }));
   const incl = fc.oneof(
     fc.constant(0),
     fc.constant(Math.PI),
@@ -92,7 +89,15 @@ describe('elements <-> state', () => {
         ang,
         trueAnom,
         (a, e, i, raan, argp, nu) => {
-          const el: OrbitalElements = { a, e, i, raan, argPeriapsis: argp, trueAnomaly: nu, mu: MU_EARTH };
+          const el: OrbitalElements = {
+            a,
+            e,
+            i,
+            raan,
+            argPeriapsis: argp,
+            trueAnomaly: nu,
+            mu: MU_EARTH,
+          };
           const s1 = elementsToState(el);
           const s2 = elementsToState(stateToElements(s1, MU_EARTH));
 
@@ -125,7 +130,15 @@ describe('elements <-> state', () => {
         ang,
         fc.double({ min: -Math.PI + 0.01, max: Math.PI - 0.01, noNaN: true }),
         (a, e, i, raan, argp, nu) => {
-          const el: OrbitalElements = { a, e, i, raan, argPeriapsis: argp, trueAnomaly: nu, mu: MU_EARTH };
+          const el: OrbitalElements = {
+            a,
+            e,
+            i,
+            raan,
+            argPeriapsis: argp,
+            trueAnomaly: nu,
+            mu: MU_EARTH,
+          };
           const back = stateToElements(elementsToState(el), MU_EARTH);
 
           expect(back.a / a).toBeCloseTo(1, 8);
@@ -159,7 +172,15 @@ describe('elements <-> state', () => {
 
   it('rejects parabolic orbits', () => {
     expect(() =>
-      elementsToState({ a: 1e7, e: 1, i: 0, raan: 0, argPeriapsis: 0, trueAnomaly: 0, mu: MU_EARTH }),
+      elementsToState({
+        a: 1e7,
+        e: 1,
+        i: 0,
+        raan: 0,
+        argPeriapsis: 0,
+        trueAnomaly: 0,
+        mu: MU_EARTH,
+      }),
     ).toThrow(/parabolic/);
   });
 
@@ -193,14 +214,19 @@ describe('local orbital frame and impulses', () => {
     expect(dot(f.prograde, f.radial)).toBeCloseTo(0, 12);
     expect(dot(f.normal, f.radial)).toBeCloseTo(0, 12);
     // The frame is right-handed in the (radial, prograde, normal) sense.
-    expect(dot(cross(f.radial, f.prograde), normalize(cross(state.r, state.v)))).toBeGreaterThan(0.99);
+    expect(dot(cross(f.radial, f.prograde), normalize(cross(state.r, state.v)))).toBeGreaterThan(
+      0.99,
+    );
   });
 
   it('raises apoapsis with a prograde burn and keeps periapsis', () => {
     const r = 7000e3;
     const v = Math.sqrt(MU_EARTH / r);
     const before = stateToElements(circularState(r, v), MU_EARTH);
-    const after = stateToElements(applyImpulse(circularState(r, v), { prograde: 200, normal: 0, radial: 0 }), MU_EARTH);
+    const after = stateToElements(
+      applyImpulse(circularState(r, v), { prograde: 200, normal: 0, radial: 0 }),
+      MU_EARTH,
+    );
 
     expect(after.a).toBeGreaterThan(before.a);
     expect(after.e).toBeGreaterThan(0);
@@ -212,10 +238,16 @@ describe('local orbital frame and impulses', () => {
     const v = Math.sqrt(MU_EARTH / r);
     const state = circularState(r, v);
 
-    const progradeOnly = stateToElements(applyImpulse(state, { prograde: 100, normal: 0, radial: 0 }), MU_EARTH);
+    const progradeOnly = stateToElements(
+      applyImpulse(state, { prograde: 100, normal: 0, radial: 0 }),
+      MU_EARTH,
+    );
     expect(progradeOnly.i).toBeLessThan(1e-9);
 
-    const normalBurn = stateToElements(applyImpulse(state, { prograde: 0, normal: 100, radial: 0 }), MU_EARTH);
+    const normalBurn = stateToElements(
+      applyImpulse(state, { prograde: 0, normal: 100, radial: 0 }),
+      MU_EARTH,
+    );
     expect(normalBurn.i).toBeGreaterThan(0.001);
   });
 

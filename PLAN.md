@@ -14,28 +14,30 @@ Milestone plan and iteration backlog for Periapsis. Status vocabulary: `pending`
 - [x] M0.1 git init, package.json, pinned dependency install
 - [x] M0.2 TypeScript strict config, Vite + React build, Prettier
 - [x] M0.3 ESLint with the core-purity boundary rules
-- [ ] M0.4 Vitest config + Playwright config + first smoke test
-- [ ] M0.5 `verify` script runs typecheck, lint, unit tests, build
+- [x] M0.4 Vitest config + Playwright config + first smoke test
+- [x] M0.5 `verify` script runs typecheck, lint, unit tests, build
 - [ ] M0.6 Docs skeleton (README, SETUP, ARCHITECTURE, PHYSICS, ADR-0001, TESTING, GLOSSARY, ...)
-- [ ] M0.7 State files: PLAN, STATE, BLOCKERS, DECISIONS
+      — partial: README.md, PHYSICS.md, PLAN.md, STATE.md, DECISIONS.md, BLOCKERS.md exist.
+      Still missing: SETUP, ARCHITECTURE, TESTING, GLOSSARY, ADR/.
+- [x] M0.7 State files: PLAN, STATE, BLOCKERS, DECISIONS
 - [ ] M0.8 React shell renders; offline-only (no network at runtime)
 
 ## M1 — Physics foundation
 
-- [ ] M1.1 vec3 math + rotations + numerical helpers, unit tested
-- [ ] M1.2 Time systems: JD <-> calendar, GMST, time-scale ADR
-- [ ] M1.3 Classical elements <-> state vector (elliptic + hyperbolic), round-trip property tests
-- [ ] M1.4 Kepler solver (elliptic + hyperbolic), tests
-- [ ] M1.5 Two-body closed-form propagator, conservation tests
-- [ ] M1.6 PHYSICS.md sections for all of the above with tolerances
+- [x] M1.1 vec3 math + rotations + numerical helpers, unit tested
+- [x] M1.2 Time systems: JD <-> calendar, GMST, time-scale ADR
+- [x] M1.3 Classical elements <-> state vector (elliptic + hyperbolic), round-trip property tests
+- [x] M1.4 Kepler solver (elliptic + hyperbolic), tests
+- [x] M1.5 Two-body closed-form propagator, conservation tests
+- [x] M1.6 PHYSICS.md sections for all of the above with tolerances
 
 ## M2 — Restricted N-body and solar system
 
-- [ ] M2.1 Integrators: RK4 fixed step + Dormand-Prince RK45 adaptive, convergence + drift tests
-- [ ] M2.2 Restricted N-body acceleration core (prescribed ephemerides)
-- [ ] M2.3 Built-in solar system data (Sun..Neptune + Moon), sourced and dated
-- [ ] M2.4 SOI model + patched-conics re-parenting, ADR
-- [ ] M2.5 Determinism and two-body-limit tests
+- [x] M2.1 Integrators: RK4 fixed step + Dormand-Prince RK45 adaptive, convergence + drift tests
+- [x] M2.2 Restricted N-body acceleration core (prescribed ephemerides)
+- [x] M2.3 Built-in solar system data (Sun..Neptune + Moon), sourced and dated
+- [x] M2.4 SOI model + patched-conics re-parenting, ADR
+- [x] M2.5 Determinism and two-body-limit tests
 
 ## M3 — 3D application shell
 
@@ -57,8 +59,8 @@ Milestone plan and iteration backlog for Periapsis. Status vocabulary: `pending`
 
 ## M5 — Mission planning
 
-- [ ] M5.1 Hohmann + bi-elliptic calculators with analytic tests
-- [ ] M5.2 Lambert solver (documented algorithm), textbook Earth-Mars validation
+- [x] M5.1 Hohmann + bi-elliptic calculators with analytic tests
+- [x] M5.2 Lambert solver (documented algorithm), textbook Earth-Mars validation
 - [ ] M5.3 Porkchop plot computation + heat-map view with hover readout
 - [ ] M5.4 Transfer -> maneuver-node workflow
 - [ ] M5.5 GTO and Earth-Mars scenarios

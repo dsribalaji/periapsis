@@ -41,11 +41,7 @@ export const jdFromSeconds = (seconds: number): number => J2000_JD + seconds / S
  * Total gravitational acceleration on a test particle at heliocentric position `r`
  * at TT Julian date `jdTt`, from every enabled body. Pure and deterministic.
  */
-export function acceleration(
-  r: Vec3,
-  jdTt: number,
-  config: NBodyConfig = ALL_BODIES,
-): Vec3 {
+export function acceleration(r: Vec3, jdTt: number, config: NBodyConfig = ALL_BODIES): Vec3 {
   const softening = config.softening ?? 0;
   const soft2 = softening * softening;
   let ax = 0;
@@ -143,12 +139,7 @@ export function containingSoi(r: Vec3, jdTt: number, config: NBodyConfig = ALL_B
 }
 
 /** Relative state of a spacecraft with respect to a body. */
-export function relativeState(
-  r: Vec3,
-  v: Vec3,
-  body: BodyId,
-  jdTt: number,
-): { r: Vec3; v: Vec3 } {
+export function relativeState(r: Vec3, v: Vec3, body: BodyId, jdTt: number): { r: Vec3; v: Vec3 } {
   const p = bodyPosition(body, jdTt);
   return { r: vec3(r.x - p.x, r.y - p.y, r.z - p.z), v };
 }

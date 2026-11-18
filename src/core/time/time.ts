@@ -77,12 +77,7 @@ export function julianDateFromCalendar(d: CalendarDate): number {
   const b = 2 - a + Math.floor(a / 4);
   const dayFraction = (hour + minute / 60 + second / 3600) / 24;
   return (
-    Math.floor(365.25 * (y + 4716)) +
-    Math.floor(30.6001 * (m + 1)) +
-    day +
-    dayFraction +
-    b -
-    1524.5
+    Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + day + dayFraction + b - 1524.5
   );
 }
 

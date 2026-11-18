@@ -8,7 +8,13 @@ import {
   centuriesFromJd,
   positionFromElements,
 } from '../src/core/ephemeris/ephemeris.js';
-import { BODIES, JPL_TABLE_1, BODY_IDS, sphereOfInfluence, MOON_ELEMENTS } from '../src/core/ephemeris/solarSystem.js';
+import {
+  BODIES,
+  JPL_TABLE_1,
+  BODY_IDS,
+  sphereOfInfluence,
+  MOON_ELEMENTS,
+} from '../src/core/ephemeris/solarSystem.js';
 import { AU_M, J2000_JD, SECONDS_PER_DAY } from '../src/core/constants.js';
 import { jdFromIsoUtc } from '../src/core/time/time.js';
 import { length, sub } from '../src/core/math/vec3.js';
@@ -35,7 +41,16 @@ describe('JPL element data integrity', () => {
   });
 
   it('orders JPL a values as expected', () => {
-    const order = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'] as const;
+    const order = [
+      'mercury',
+      'venus',
+      'earth',
+      'mars',
+      'jupiter',
+      'saturn',
+      'uranus',
+      'neptune',
+    ] as const;
     for (let i = 1; i < order.length; i++) {
       expect(JPL_TABLE_1[order[i]!].a).toBeGreaterThan(JPL_TABLE_1[order[i - 1]!].a);
     }
@@ -71,10 +86,10 @@ describe('ephemeris positions', () => {
   it('keeps every planet inside its known perihelion/aphelion band', () => {
     const jd = jdFromIsoUtc('2026-11-18T00:00:00Z');
     const bands: Record<string, [number, number]> = {
-      mercury: [0.30, 0.48],
+      mercury: [0.3, 0.48],
       venus: [0.71, 0.74],
       earth: [0.98, 1.02],
-      mars: [1.35, 1.70],
+      mars: [1.35, 1.7],
       jupiter: [4.9, 5.5],
       saturn: [8.9, 10.2],
       uranus: [18.2, 20.1],
@@ -278,17 +293,32 @@ describe('sphere of influence', () => {
 describe('position from elements', () => {
   it('round-trips a circular orbit', () => {
     const p = positionFromElements({
-      a: 1, e: 0, i: 0, node: 0, argPeriapsis: 0, meanAnomaly: 0,
+      a: 1,
+      e: 0,
+      i: 0,
+      node: 0,
+      argPeriapsis: 0,
+      meanAnomaly: 0,
     });
     expect(length(p) / AU_M).toBeCloseTo(1, 10);
   });
 
   it('puts apoapsis on the far side', () => {
     const peri = positionFromElements({
-      a: 1, e: 0.5, i: 0, node: 0, argPeriapsis: 0, meanAnomaly: 0,
+      a: 1,
+      e: 0.5,
+      i: 0,
+      node: 0,
+      argPeriapsis: 0,
+      meanAnomaly: 0,
     });
     const apo = positionFromElements({
-      a: 1, e: 0.5, i: 0, node: 0, argPeriapsis: 0, meanAnomaly: Math.PI,
+      a: 1,
+      e: 0.5,
+      i: 0,
+      node: 0,
+      argPeriapsis: 0,
+      meanAnomaly: Math.PI,
     });
     expect(length(peri) / AU_M).toBeCloseTo(0.5, 6);
     expect(length(apo) / AU_M).toBeCloseTo(1.5, 6);
