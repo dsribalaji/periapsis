@@ -48,7 +48,6 @@ describe('two-body propagation', () => {
         fc.double({ min: 1e3, max: 1e7, noNaN: true }),
         fc.double({ min: -Math.PI + 0.01, max: Math.PI - 0.01, noNaN: true }),
         (dt, x) => {
-          const s = leoState(7000e3, 0.05);
           const nuShift = x;
           const start = elementsToState({
             a: 7000e3, e: 0.05, i: 0.5, raan: 0.2, argPeriapsis: 0.1, trueAnomaly: nuShift, mu: MU,
@@ -85,6 +84,7 @@ describe('two-body propagation', () => {
       a, e, i: 0, raan: 0, argPeriapsis: 0, trueAnomaly: Math.PI / 2, mu: MU,
     });
     const el = stateToElements(s, MU);
+    expect(el.a).toBeCloseTo(a, -2);
     // Time from nu = pi/2 to periapsis (nu = 0) going forward is (2pi - M(nu)) / n.
     const n = Math.sqrt(MU / (a * a * a));
     const M = meanAnomalyFromTrue(Math.PI / 2, e);

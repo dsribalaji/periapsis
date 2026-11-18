@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import {
   rk4Step,
   rk45Step,
@@ -7,7 +7,7 @@ import {
   type AccelerationFn,
   type IntegratorState,
 } from '../src/core/integrate/integrators.js';
-import { vec3, length, sub, scale } from '../src/core/math/vec3.js';
+import { vec3, length, sub } from '../src/core/math/vec3.js';
 import { GM } from '../src/core/constants.js';
 import { elementsToState, specificEnergy, specificAngularMomentum, orbitalPeriod } from '../src/core/orbit/elements.js';
 import { propagateTwoBody } from '../src/core/orbit/twoBody.js';
