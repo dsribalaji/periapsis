@@ -4,13 +4,20 @@
  * Two scale problems are solved here, in order.
  *
  * 1. **Which frame.** The trajectory is heliocentric; the user wants to see an orbit *about a
- *    body*. Offsets are taken against the central body's position at the scenario epoch, so
- *    the drawn curve is frozen in that body's frame and the whole group is anchored at the
+ *    body*. Each sample is offset by the central body's position **at that sample's own time**,
+ *    which is the body-relative (geocentric) path, and the whole group is anchored at the
  *    body's current scene position. Over a LEO revolution Earth moves about 25 of its own
  *    radii, so a heliocentric-inertial drawing would smear the orbit right off the planet;
- *    a body-fixed drawing is both what "the orbit" means and what stays on screen. The cost
+ *    a body-relative drawing is both what "the orbit" means and what stays on screen. The cost
  *    is that a craft genuinely leaving the body (a heliocentric transfer) is drawn as a curve
  *    attached to that body. Stated in PHYSICS.md §10 rather than left to be discovered.
+ *
+ *    Subtracting the body position at the **epoch** instead - which this module did until M5.5 -
+ *    is not a smaller approximation, it is a different (and wrong) quantity: it leaves the
+ *    body's own displacement over the horizon in the offsets *and* the group transform then
+ *    adds it back. Measured, that drew the bundled 550 km orbit as a 343,000 km streak (a
+ *    craft sitting exactly at Earth's centre was drawn 10 units away after 30 minutes), and the
+ *    same error fed the altitude readout, which reported 337,018 km for a 550 km orbit.
  *
  * 2. **Which scale.** The solar-system view draws bodies with a cube-root compressed radius
  *    while positions stay linear, so the two scales differ by about 280x for Earth. A 400 km
@@ -29,6 +36,7 @@
 
 import { BODIES, type BodyId } from '../core/ephemeris/solarSystem.js';
 import { bodyPosition } from '../core/ephemeris/ephemeris.js';
+import { SECONDS_PER_DAY } from '../core/constants.js';
 import type { Vec3 } from '../core/math/vec3.js';
 import { bodyRelativeScale, scaleOffset } from './scale.js';
 
@@ -40,7 +48,7 @@ export interface LocalFramePoint {
 
 export interface LocalFrameOptions {
   readonly centralBody: BodyId;
-  /** TT Julian date of the scenario epoch: both the frame's reference and time zero. */
+  /** TT Julian date of the scenario epoch: time zero for the sample times. */
   readonly epochJdTt: number;
   /**
    * How far from the body the line may reach, in scene units. Beyond this the frame's
@@ -93,8 +101,6 @@ export function toLocalFrame(
 
   const bodyRadiusM = BODIES[options.centralBody].radius;
   const unitsPerMetre = bodyRelativeScale(options.centralBody, bodyRadiusM);
-  // One reference position for the whole path: see the module note on framing.
-  const origin = bodyPosition(options.centralBody, options.epochJdTt);
 
   const positions: number[] = [];
   const segmentTimes: number[] = [];
@@ -109,6 +115,14 @@ export function toLocalFrame(
   let previous: { x: number; y: number; z: number } | null = null;
 
   for (const point of points) {
+    // The body's position at *this sample's* time, not at the epoch. The group transform
+    // anchors the result at the body's live position, so the offsets must be the body-relative
+    // path for the two to compose correctly: epoch-relative offsets plus a live anchor draw the
+    // body's own motion as if the craft had flown it (see the module note).
+    const origin = bodyPosition(
+      options.centralBody,
+      options.epochJdTt + point.timeSeconds / SECONDS_PER_DAY,
+    );
     const [x, y, z] = scaleOffset(
       point.r.x - origin.x,
       point.r.y - origin.y,

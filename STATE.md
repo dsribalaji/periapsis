@@ -21,10 +21,10 @@ Last full run: `npm run verify` (2026-11-19) and `npx playwright test`.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 532 tests / 22 files                               |
-| Build (`vite build`)        | PASS, 842 kB JS (230 kB gzip)                            |
+| Unit tests (`vitest run`)   | PASS, 541 tests / 22 files                               |
+| Build (`vite build`)        | PASS, 843.87 kB JS (229.89 kB gzip)                      |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
-| E2E (`npx playwright test`) | PASS, 32 tests against the real app in headless Chromium |
+| E2E (`npx playwright test`) | PASS, 35 tests against the real app in headless Chromium |
 
 All six were run, not inferred. The e2e suite starts its own dev server and drives the real
 page: it asserts React mounts, a WebGL canvas is created and sized, the clock advances while
@@ -50,6 +50,20 @@ months out extends the plan and says by how much, re-planning the same cell repl
 instead of stacking a second, a scenario without a spacecraft disables the action with a reason
 instead of failing silently, and a fully converged grid produces a node from an arbitrary cell.
 
+The two departure scenarios have their own end-to-end coverage: the GTO scenario shows both
+burns, a planned total of 4,258.4 m/s, and an end state at a circular 42,164 km orbit whose live
+radius agrees with the panel's own apoapsis; its T+0 burn is already spent when the scenario
+loads; and the Earth–Mars park opens with no node, a pure 300 km coast, and one porkchop click
+turns it into a kilometres-per-second departure with the plan extended and flagged as aliased.
+
+The mission panel's live radius is asserted against the panel's own apoapsis rather than against
+a wide tolerance. That assertion is the direct consequence of a defect found in M5.5: the drawn
+path was anchored at the scenario epoch, which double-counted the central body's displacement and
+drew the bundled 550 km orbit as a 343,390 km streak, so the panel read "Radius now
+343,389.8 km" above "Apoapsis 7,151.9 km". The old test passed it, because its tolerance was
+±1,000 km. Fixed in D-032 / PHYSICS.md §10.2, with regression tests at both the unit and e2e
+level that compare one readout against another instead of against a constant.
+
 Note on the browser: the paired interactive browser extension was not connected, so
 verification ran through Playwright's Chromium with software GL
 (`--use-gl=swiftshader`). That is a real browser executing the real bundle, but it is not
@@ -57,31 +71,31 @@ the same as a check on a GPU-backed desktop browser.
 
 ## Test inventory
 
-| File                            | Tests | Covers                                                            |
-| ------------------------------- | ----- | ----------------------------------------------------------------- |
-| `tests/vec3.test.ts`            | 18    | vector algebra, rotations, frame conversions                      |
-| `tests/time.test.ts`            | 18    | JD/calendar, leap seconds, GMST, ERA                              |
-| `tests/kepler.test.ts`          | 13    | elliptic + hyperbolic solvers, high-eccentricity cases            |
-| `tests/elements.test.ts`        | 13    | state <-> elements round trips, apsides                           |
-| `tests/twoBody.test.ts`         | 15    | closed-form propagation, energy/angular-momentum conservation     |
-| `tests/integrators.test.ts`     | 16    | RK4 + Dormand-Prince RK45, convergence order, drift               |
-| `tests/ephemeris.test.ts`       | 28    | body positions, velocities, mean motion, SOI                      |
-| `tests/nbody.test.ts`           | 21    | acceleration, dominant body, patched-conic re-parenting           |
-| `tests/lambert.test.ts`         | 35    | Hohmann/bi-elliptic/plane change + Lambert solver                 |
-| `tests/clock.test.ts`           | 21    | warp, step budget, frame-rate independence, formatting            |
-| `tests/simulation.test.ts`      | 15    | epoch/JD handling, body positions, determinism, reset             |
-| `tests/scale.test.ts`           | 21    | scene scale, radius compression, radial mapping                   |
-| `tests/scenario.test.ts`        | 35    | scenario schema, validation errors, bundled catalogue             |
-| `tests/maneuver.test.ts`        | 23    | node frames, magnitudes, ordering, Δv totals                      |
-| `tests/trajectory.test.ts`      | 25    | propagation modes, burns in-frame, Δv accounting, Hohmann arc     |
-| `tests/craft.test.ts`           | 18    | circular orbit states, frames, periods, speeds, clearance         |
-| `tests/trajectoryLines.test.ts` | 20    | body-fixed frame, exaggeration, envelope clipping, flown prefix   |
-| `tests/missionView.test.ts`     | 20    | plan/progress split, Δv accounting, interpolation, aliasing       |
-| `tests/porkchop.test.ts`        | 34    | grid construction, Lambert agreement, cost/geometry, holes        |
-| `tests/porkchopView.test.ts`    | 50    | colour ramp, image orientation, pointer mapping, ticks, readout   |
-| `tests/departure.test.ts`       | 31    | closed-form departure, Oberth crossover, phase search, plane cost |
-| `tests/transferView.test.ts`    | 42    | cell -> node, timing shift, warnings, horizon extension           |
-| `e2e/shell.spec.ts`             | 32    | boot, WebGL, clock, picking, drag, zoom, mission, plot, departure |
+| File                            | Tests | Covers                                                             |
+| ------------------------------- | ----- | ------------------------------------------------------------------ |
+| `tests/vec3.test.ts`            | 18    | vector algebra, rotations, frame conversions                       |
+| `tests/time.test.ts`            | 18    | JD/calendar, leap seconds, GMST, ERA                               |
+| `tests/kepler.test.ts`          | 13    | elliptic + hyperbolic solvers, high-eccentricity cases             |
+| `tests/elements.test.ts`        | 13    | state <-> elements round trips, apsides                            |
+| `tests/twoBody.test.ts`         | 15    | closed-form propagation, energy/angular-momentum conservation      |
+| `tests/integrators.test.ts`     | 16    | RK4 + Dormand-Prince RK45, convergence order, drift                |
+| `tests/ephemeris.test.ts`       | 28    | body positions, velocities, mean motion, SOI                       |
+| `tests/nbody.test.ts`           | 21    | acceleration, dominant body, patched-conic re-parenting            |
+| `tests/lambert.test.ts`         | 35    | Hohmann/bi-elliptic/plane change + Lambert solver                  |
+| `tests/clock.test.ts`           | 21    | warp, step budget, frame-rate independence, formatting             |
+| `tests/simulation.test.ts`      | 15    | epoch/JD handling, body positions, determinism, reset              |
+| `tests/scale.test.ts`           | 21    | scene scale, radius compression, radial mapping                    |
+| `tests/scenario.test.ts`        | 39    | scenario schema, validation errors, bundled catalogue              |
+| `tests/maneuver.test.ts`        | 23    | node frames, magnitudes, ordering, Δv totals                       |
+| `tests/trajectory.test.ts`      | 25    | propagation modes, burns in-frame, Δv accounting, Hohmann arc      |
+| `tests/craft.test.ts`           | 18    | circular orbit states, frames, periods, speeds, clearance          |
+| `tests/trajectoryLines.test.ts` | 22    | body-relative frame, exaggeration, envelope clipping, flown prefix |
+| `tests/missionView.test.ts`     | 23    | plan/progress split, Δv accounting, interpolation, aliasing        |
+| `tests/porkchop.test.ts`        | 34    | grid construction, Lambert agreement, cost/geometry, holes         |
+| `tests/porkchopView.test.ts`    | 50    | colour ramp, image orientation, pointer mapping, ticks, readout    |
+| `tests/departure.test.ts`       | 31    | closed-form departure, Oberth crossover, phase search, plane cost  |
+| `tests/transferView.test.ts`    | 42    | cell -> node, timing shift, warnings, horizon extension            |
+| `e2e/shell.spec.ts`             | 35    | boot, WebGL, clock, picking, drag, zoom, mission, plot, departure  |
 
 ## Module inventory
 
@@ -119,7 +133,7 @@ the same as a check on a GPU-backed desktop browser.
 | Module               | Status                                                              |
 | -------------------- | ------------------------------------------------------------------- |
 | `scale.ts`           | complete, tested (linear + logarithmic radial mapping, offsets)     |
-| `trajectoryLines.ts` | complete, tested (body-fixed frame, exaggeration, clipping, prefix) |
+| `trajectoryLines.ts` | complete, tested (body-relative per sample, exaggeration, clipping) |
 | `scene.ts`           | complete: bodies, rings, labels, picking, camera, drag/zoom,        |
 |                      | trajectories and the craft marker                                   |
 
@@ -138,11 +152,11 @@ the same as a check on a GPU-backed desktop browser.
 
 `src/scenarios` — schema, validation and the bundled catalogue:
 
-| Module         | Status                                                      |
-| -------------- | ----------------------------------------------------------- |
-| `types.ts`     | complete: versioned `Scenario` / `ScenarioView` types       |
-| `validate.ts`  | complete, tested: structural validation with field paths    |
-| `catalogue.ts` | complete, tested: four bundled scenarios, validated on load |
+| Module         | Status                                                     |
+| -------------- | ---------------------------------------------------------- |
+| `types.ts`     | complete: versioned `Scenario` / `ScenarioView` types      |
+| `validate.ts`  | complete, tested: structural validation with field paths   |
+| `catalogue.ts` | complete, tested: six bundled scenarios, validated on load |
 
 Entry points: `index.html`, `src/main.tsx`, `e2e/shell.spec.ts`, `playwright.config.ts`,
 `scripts/inspect-screenshot.mjs` (decodes a screenshot and reports measurable facts; the agent
@@ -162,7 +176,7 @@ import/export.
 | M2 N-body + solar system  | done                                                             |
 | M3 3D shell               | done (M3.1-M3.6)                                                 |
 | M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
-| M5 mission planning       | M5.1–M5.4 done; Earth-Mars/GTO scenarios outstanding (M5.5)      |
+| M5 mission planning       | done (M5.1–M5.5)                                                 |
 | M6 ground track + Moon    | not started                                                      |
 | M7 scenarios + polish     | not started                                                      |
 | M8 hardening              | not started                                                      |
@@ -191,10 +205,10 @@ import/export.
 - Local burns at the same instant are order-dependent, because the frame is re-derived after
   each burn (measured: 0.15 m/s swapping a prograde and a normal node). Order is deterministic
   via (time, id), so a saved mission replays identically.
-- A trajectory is drawn body-fixed at the scenario epoch (PHYSICS.md §10.2, D-014), so a craft
-  that genuinely leaves its central body is drawn attached to it. The mission panel reports the
-  physics (impact, apoapsis, periapsis) as numbers; the picture is a local view, not a
-  heliocentric path.
+- A trajectory is drawn body-relative, against each sample's own time (PHYSICS.md §10.2,
+  D-032), so a craft that genuinely leaves its central body is drawn attached to it. The mission
+  panel reports the physics (impact, apoapsis, periapsis) as numbers; the picture is a local
+  view, not a heliocentric path.
 - Trajectory geometry reuses the central body's radius exaggeration (PHYSICS.md §10.3), so the
   orbit is correct _about that body_ but not to scale against the heliocentric layout: the Moon
   is drawn at 72 units from Earth-drawn-space while its scene position is ~0.03 units away.

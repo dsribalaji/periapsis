@@ -148,20 +148,29 @@ exists. Splitting puts a vertex exactly at the node and makes `afterBurn` meanin
 Re-integrating from the epoch is quadratic in the number of burns and recomputes identical arcs;
 the incremental sweep recomputes nothing.
 
-## D-014 — A trajectory is drawn in the body-fixed frame at the scenario epoch
+## D-014 - A trajectory is drawn body-relative, in the central body's frame
 
-**Choice:** `toLocalFrame` subtracts the central body's position at the epoch from every
-heliocentric sample, converts with the body's own exaggeration, and returns one group that the
-scene anchors at that body's live position.
-**Alternatives:** draw the trajectory heliocentrically in scene units; recompute body-relative
-offsets against the body's position at each sample's own time.
+> **Amended in M5.5 (see D-032).** The _reason_ below is unchanged and still correct: the frame
+> must be body-relative. The _implementation_ it describes — subtracting the body's position at
+> the epoch — was wrong, and drew the 550 km LEO orbit as a 343,390 km streak. The subtraction is
+> now per sample. Kept in place rather than superseded because the argument for a body-relative
+> frame is the argument D-032 relies on.
+
+**Choice:** `toLocalFrame` subtracts the central body's position **at each sample's own time**
+from every heliocentric sample, converts with the body's own exaggeration, and returns one group
+that the scene anchors at that body's live position.
+**Alternatives:** draw the trajectory heliocentrically in scene units; subtract the body's
+position at the epoch (the original, wrong version); recompute vertex offsets in the scene every
+frame.
 **Why:** Earth moves about 25 of its own radii per LEO revolution, so a heliocentric drawing
-smears a 550 km orbit off the planet into a spiral — technically the true Sun-centred path and
-useless to look at. Offsets against the per-sample body position would need a vertex-by-vertex
-offset every frame once the body moves, and would still render a curved line that is not an
-orbit in any single frame. One epoch reference plus a group transform is a single
-`position.set` per frame. The cost — a genuinely escaping craft is drawn attached to its body —
-is recorded in PHYSICS.md §10.2 rather than left to be discovered.
+smears a 550 km orbit off the planet into a spiral - technically the true Sun-centred path and
+useless to look at. The subtraction must be per sample because the group transform then adds the
+body's _live_ position back: subtracting the epoch position instead counts the body's own
+displacement twice, once as a subtraction that never happens and once as a translation that does.
+Recomputing the offsets inside the scene every frame was the alternative that made the epoch
+anchor attractive, but it is unnecessary — the offsets are body-relative, so they are fixed once
+at plan time and the group transform alone places them. The cost - a genuinely escaping craft is
+drawn attached to its body - is recorded in PHYSICS.md §10.2 rather than left to be discovered.
 
 ## D-015 — Trajectory geometry is disjoint vertex pairs, not a polyline
 
@@ -341,3 +350,39 @@ states are exact; the **picture** is a star polygon. Raising the point cap is no
 (4000 points over 735 days is still 0.44 of a period per sample, and the cap exists for the
 renderer's sake). Making it a number that appears only when it matters is the honest option:
 measured 0.010 for the bundled LEO raise (dense) and 2.772 for the planned departure (aliased).
+
+## D-032 — A trajectory is drawn body-relative per sample, not epoch-relative
+
+**Choice:** `toLocalFrame` subtracts `bodyPosition(centralBody, epoch + t)` for **each sample's own
+time**, then the scene anchors the whole group at the body's live position.
+**Alternatives:** subtract the body's position at the epoch (the behaviour until M5.5); draw
+heliocentrically; recompute vertex offsets in the scene every frame.
+**Why:** the epoch-relative version is not an approximation of the right thing, it is a different
+quantity. The group transform adds the body's _live_ position back, so the body's own displacement
+over the horizon was counted twice — once as a subtraction that did not happen, once as a
+translation that did. This was recorded as intentional in DECISIONS D-014 and PHYSICS §10.2, and
+it survived four milestones because it produces a _plausible_ picture at LEO: a streak through the
+orbit that reads as a trail. Measured on the bundled 550 km orbit, the drawn extent was 64.68 units
+for a 1.35-unit orbit — 343,390 km of path for a 7,152 km orbit. What made it a defect rather than
+a cosmetic issue is that the live radius readout is derived from the drawn frame, so the panel
+showed "Radius now 343,389.8 km" directly above "Apoapsis 7,151.9 km". The fix costs one
+`bodyPosition` call per sample (4-8 ms at 4,000 samples) against a propagation that already does
+two per sample. D-014's stated _reason_ still holds and is unchanged: the frame must be
+body-relative. Only its _implementation_ was wrong, so D-014 is amended in place rather than
+superseded.
+
+## D-033 — The two departure scenarios carry measured burns, and the tests re-derive them
+
+**Choice:** `gto-transfer` and `earth-mars-departure` hard-code their nodes' components, and
+`tests/scenario.test.ts` recomputes each one from `hohmannTransfer` and the circularisation
+geometry rather than asserting the file's own numbers.
+**Alternatives:** build the scenarios from the solver at module load; assert only that the
+scenario validates.
+**Why:** a scenario is data, and data cannot call a solver — so the numbers have to be literals.
+But a literal that nothing re-derives is a measurement that goes stale silently the moment the
+physics changes, and the failure is a scenario that still loads and still draws, just with a burn
+that no longer reaches where it says. The GTO numbers are checkable against a closed form
+(`2 v sin(i/2)` for the plane change, vis-viva for the apogee speed), so the test recomputes both
+the prograde and normal components and also asserts the _saving_ — 1,151 m/s, bounded to
+1,000-1,300 — because that saving is the entire point of the scenario. A scenario whose lesson
+has quietly evaporated is worse than no scenario.

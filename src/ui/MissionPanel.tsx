@@ -46,9 +46,9 @@ export function MissionPanel({ plan, progress, testid }: MissionPanelProps): Rea
           {altitude === null ? '--' : `${(altitude / 1000).toFixed(1)} km`}
         </dd>
         <dt>Apoapsis</dt>
-        <dd>{(plan.maxRadius / 1000).toFixed(1)} km</dd>
+        <dd data-testid="mission-apoapsis">{(plan.maxRadius / 1000).toFixed(1)} km</dd>
         <dt>Periapsis</dt>
-        <dd>{(plan.minRadius / 1000).toFixed(1)} km</dd>
+        <dd data-testid="mission-periapsis">{(plan.minRadius / 1000).toFixed(1)} km</dd>
       </dl>
 
       <h2 style={{ marginTop: 6 }}>Delta-v</h2>
@@ -93,7 +93,9 @@ export function MissionPanel({ plan, progress, testid }: MissionPanelProps): Rea
 
       <h2 style={{ marginTop: 6 }}>Nodes</h2>
       {plan.nodes.length === 0 ? (
-        <p className="hint">No maneuver nodes. The path is a pure coast.</p>
+        <p className="hint" data-testid="mission-no-nodes">
+          No maneuver nodes. The path is a pure coast.
+        </p>
       ) : (
         <div className="node-list" data-testid="mission-nodes">
           {plan.nodes.map((n) => {

@@ -444,23 +444,43 @@ preserves handedness, so an orbit that is prograde in physics still looks progra
 once in `scale.ts` (`toScene`, `scaleOffset`) and once in `orbit/elements.ts`
 (`localOrbitalFrame`) — nowhere else.
 
-### 10.2 Trajectories are drawn body-fixed at the scenario epoch
+### 10.2 Trajectories are drawn body-relative, against each sample's own time
 
 A propagated trajectory is heliocentric. It is drawn as offsets against the central body's
-position **at the scenario epoch**, with the resulting group anchored to that body's live
-scene position.
+position **at each sample's own time** - the body-relative path - with the resulting group
+anchored to that body's live scene position.
 
 **Why not heliocentrically:** Earth travels about 25 of its own radii during one LEO
-revolution. Drawn inertially, a 550 km orbit would be smeared off the planet into a spiral —
-a picture of the Sun-centred path, which is not the thing anyone is looking at. Anchoring to
-the body is what makes "the orbit" look like an orbit.
+revolution. Drawn inertially, a 550 km orbit would be smeared off the planet into a spiral - a
+picture of the Sun-centred path, which is not the thing anyone is looking at. Anchoring to the
+body is what makes "the orbit" look like an orbit.
 
-**What it costs:** a craft that genuinely leaves its central body (a heliocentric transfer)
+**Why not the epoch position** (which is what this module did until M5.5, and what this section
+described as correct): subtracting the body's position at the **epoch** while the group transform
+adds the body's position at the **current** time does not freeze the frame - it double-counts the
+body's own displacement into the craft's. Measured on the bundled 550 km orbit:
+
+| Quantity                                      | Epoch-anchored (wrong) | Body-relative (correct) |
+| --------------------------------------------- | ---------------------- | ----------------------- |
+| Drawn extent over a 3.22 h horizon            | 64.68 units            | 1.35 units              |
+| That extent in real distance                  | 343,390 km             | 7,152 km                |
+| Craft sitting at Earth's centre, after 30 min | 10.21 units away       | origin, exactly         |
+| Altitude readout at the horizon               | 337,018.8 km           | 780.1 km                |
+
+The last row is the one that made this a defect rather than a cosmetic issue: the live radius is
+derived from the drawn frame, so the panel read "Radius now 343,389.8 km" directly above
+"Apoapsis 7,151.9 km". The e2e test that guarded the altitude accepted it, because its tolerance
+was ±1000 km; it now asserts the live radius against the plan's own apoapsis.
+
+The fix costs one `bodyPosition` call per sample - measured 4-8 ms for 4,000 samples, against a
+propagation that already does two per sample for velocity.
+
+**What it still costs:** a craft that genuinely leaves its central body (a heliocentric transfer)
 is drawn as a curve attached to that body rather than as a path through the solar system.
 Chopping the anchor at the SOI boundary would show the curve correctly for a moment and then
-jump it; in v1 the honest description is that the drawn line is body-relative, and the
-mission panel reports heliocentric-crossing facts (impact, apoapsis) as numbers. Recorded as
-a limitation rather than a plan.
+jump it; in v1 the honest description is that the drawn line is body-relative, and the mission
+panel reports heliocentric-crossing facts (impact, apoapsis) as numbers. Recorded as a limitation
+rather than a plan.
 
 ### 10.3 Scale: trajectories reuse the body's own exaggeration
 
@@ -857,3 +877,45 @@ radial^2)` fed back through `w^2 = 2mu/r + v_inf^2` returns the cell's `v_inf` t
   cell: `0 <= shiftSeconds < parkingPeriod`.
 - **Re-planning the same cell is idempotent**: `withManeuver` replaces by id, so the node count
   stays at one.
+
+### 12.10 The two departure scenarios, and why their numbers are what they are
+
+The bundled `gto-transfer` and `earth-mars-departure` scenarios carry hard-coded burns. A
+hard-coded number in a scenario is a measurement, and a measurement that nobody re-derives goes
+stale silently - so both are recomputed from the transfer physics in `tests/scenario.test.ts`
+rather than merely asserted to be whatever the file says.
+
+**GTO, 300 km to GEO, 28.5-degree park.** The two nodes are a Hohmann departure and a
+circularisation with the plane change folded into it:
+
+| Burn                      | Measured    | What it is                                         |
+| ------------------------- | ----------- | -------------------------------------------------- |
+| Perigee raise             | 2,427.8     | Hohmann departure, 300 km -> transfer ellipse      |
+| Apogee: circularise only  | 1,467.6     | close the apogee-speed gap at 1,607 m/s            |
+| Apogee: plane change only | 1,513.7     | 28.5 degrees at the circular speed, 3,075 m/s      |
+| Apogee: done separately   | 2,981.2     | the two above, added                               |
+| Apogee: combined          | **1,830.7** | one burn, components 1,095 prograde + 1,467 normal |
+| Total                     | 4,258.4     | against a real GTO budget of roughly 4,300-4,500   |
+
+The combined burn saves **1,150.6 m/s**, which is why every real GTO mission does it that way. The
+reason is in the two speeds: a plane change costs `2 v sin(i/2)`, so it is cheap where `v` is
+small - and at apogee the velocity is 1.61 km/s against 3.07 at GEO circular. Doing the plane
+change at LEO instead would cost 1,514 m/s for the same 28.5 degrees at 7.73 km/s. That is not a
+tuning detail; it is the difference between a flyable mission and an unflyable one.
+
+**Earth to Mars, 300 km at 51.6 degrees.** No nodes: the scenario is a park with the 2028 window
+inside the default plot range, and the first user action is a porkchop click. Measured from the
+2028-11-01 epoch, the cheapest cell is 2028-11-21 at 3.03 km/s of excess speed, and the burn from
+this park is 4,338 m/s over 51.6 degrees against 6,581 from an equatorial one. The budget of
+4,700 m/s leaves 362 m/s of margin on that burn.
+
+The 51.6-degree park is the load-bearing choice, and it is worth being explicit that the intuition
+runs backwards here: a _higher_ parking inclination is _cheaper_ for this window, because the
+asymptote is 25.9 degrees above the ecliptic and the aim only has to leave the parking plane by
+8.8 degrees instead of 25.9. A reader who assumes "inclination is always a cost" will read the
+table in 12.4 in the wrong direction; the elevation column is what resolves it.
+
+One more consequence, stated because it looks like a bug and is not: at 3.03 km/s the excess speed
+is **below** the 3.87 km/s Oberth crossover, so `oberthHelps` is false and the 3,615 m/s in-plane
+floor is _above_ the cell's 3.03 km/s number. Departing slowly from a fast orbit costs more than
+the excess speed, because most of the fuel cancels speed the craft already has.

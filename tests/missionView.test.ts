@@ -169,6 +169,47 @@ describe('mission progress', () => {
     expect(p.altitude).toBeCloseTo(550e3, -3);
   });
 
+  it('keeps the live radius inside the plan its own panel reports', () => {
+    // Regression: `radius` is derived from the *drawn* frame, while `minRadius`/`maxRadius` come
+    // from the propagated states against each sample's own time. If the frame is anchored
+    // wrongly the two disagree, and the panel contradicts itself - measured before the fix,
+    // "Radius now 343,389.8 km" sat directly above "Apoapsis 7,151.9 km" for a 550 km orbit.
+    const plan = buildMissionPlan(spec(), EPOCH);
+    for (const fraction of [0, 0.01, 0.1, 0.25, 0.5, 0.9, 1]) {
+      const t = fraction * plan.horizonSeconds;
+      const radius = missionProgress(plan, t).radius;
+      expect(radius).not.toBeNull();
+      // One sample spacing of slack, since the interpolated point can sit between extrema.
+      const slack = plan.maxRadius * 1e-3;
+      expect(radius!).toBeGreaterThanOrEqual(plan.minRadius - slack);
+      expect(radius!).toBeLessThanOrEqual(plan.maxRadius + slack);
+    }
+  });
+
+  it('keeps the altitude near the orbit when no node has been passed', () => {
+    // A node-free circular orbit has no way to change altitude, so the readout must stay
+    // within rounding of 550 km for the whole horizon.
+    const plan = buildMissionPlan(spec(), EPOCH);
+    for (const fraction of [0, 0.1, 0.3, 0.6, 1]) {
+      const altitude = missionProgress(plan, fraction * plan.horizonSeconds).altitude;
+      expect(altitude).toBeCloseTo(550e3, -4);
+    }
+  });
+
+  it('shows the altitude change a node actually causes', () => {
+    // The raise node is at T+48:20 and lifts apoapsis. The panel must read the new altitude
+    // after it, not the initial one.
+    const plan = buildMissionPlan(
+      spec({ maneuvers: [{ id: 'b1', timeSeconds: 2900, a: 62, b: 0, c: 0, frame: 'local' }] }),
+      EPOCH,
+    );
+    const before = missionProgress(plan, 2800).altitude!;
+    const after = missionProgress(plan, plan.horizonSeconds).altitude!;
+    expect(before).toBeCloseTo(550e3, -4);
+    expect(after).toBeGreaterThan(700e3);
+    expect(after).toBeLessThan(900e3);
+  });
+
   it('advances the craft with the clock', () => {
     const plan = buildMissionPlan(spec(), EPOCH);
     const a = missionProgress(plan, 0).position!;

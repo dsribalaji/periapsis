@@ -95,7 +95,20 @@ delete one. Those items stay unticked rather than being checked off on the stren
       `periodFractionPerSample` in `ui/missionView.ts`. 73 new unit tests, 6 new e2e tests.
       Clicked-cell selection, epoch-anchored default window (D-028), aliasing caveat (D-029).
       PHYSICS.md §12, DECISIONS D-020—D-029.
-- [ ] M5.5 GTO and Earth-Mars scenarios
+- [x] M5.5 GTO and Earth-Mars scenarios
+      — `gto-transfer` and `earth-mars-departure` in `src/scenarios/catalogue.ts` (six
+      scenarios now), 4 new tests in `tests/scenario.test.ts` (39 total) that re-derive both
+      scenarios' burns from `hohmannTransfer` and the circularisation geometry rather than
+      asserting the file's own literals (D-033). GTO: 300 km / 28.5-degree park, nodes at
+      T+0 (2,427.8 m/s) and T+18,986 s (1,095.0 prograde + 1,467.1 normal), 4,258.4 m/s total
+      against a 4,400 budget; ends at 42,164.0 km, i = 0.0000 degrees, e = 1e-6. Earth-Mars:
+      300 km / 51.6-degree park with no nodes, so the first action is a porkchop click; the
+      2028-11-21 cell costs 4,338.4 m/s against a 4,700 budget. Also fixed a trajectory-frame
+      defect found while measuring (D-032, PHYSICS.md §10.2): the drawn path was anchored at
+      the epoch, which double-counted the body's own displacement and drew the 550 km LEO
+      orbit as a 343,390 km streak. 3 new e2e tests (35 total), 3 new unit tests in
+      `tests/missionView.test.ts` (23) and 2 in `tests/trajectoryLines.test.ts` (22).
+      PHYSICS.md §12.10.
 
 ## M6 — Ground track and Moon
 

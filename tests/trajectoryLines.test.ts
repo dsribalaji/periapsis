@@ -10,16 +10,25 @@ import { displayRadiusFor } from '../src/render/scale.js';
 import { BODIES } from '../src/core/ephemeris/solarSystem.js';
 import { bodyPosition } from '../src/core/ephemeris/ephemeris.js';
 import { jdFromIsoUtc, jdTtFromJdUtc } from '../src/core/time/time.js';
+import { SECONDS_PER_DAY } from '../src/core/constants.js';
 import type { Vec3 } from '../src/core/math/vec3.js';
 
 const EPOCH_TT = jdTtFromJdUtc(jdFromIsoUtc('2026-11-18T12:00:00Z'));
 const R_EARTH = BODIES.earth.radius;
 const DRAWN_EARTH = displayRadiusFor('earth', R_EARTH);
 
-/** Heliocentric points from Earth-relative offsets, taken at the epoch. */
+/**
+ * Heliocentric points from Earth-relative offsets.
+ *
+ * Each offset is anchored at Earth's position **at that sample's own time**, which is what a
+ * propagated body-relative path actually looks like: `trajectory.points` are heliocentric, so
+ * `p.r = earth(t) + offset(t)`. Anchoring every sample at the epoch instead would build points
+ * that mean something else - a point "one Earth radius out at t = 60" would then sit one Earth
+ * radius from where Earth *was*, which is 0.22 units short of where Earth *is*.
+ */
 function pointsFromOffsets(offsets: readonly { r: Vec3; t: number }[]): LocalFramePoint[] {
   return offsets.map(({ r, t }) => {
-    const body = bodyPosition('earth', EPOCH_TT);
+    const body = bodyPosition('earth', EPOCH_TT + t / SECONDS_PER_DAY);
     return { r: { x: body.x + r.x, y: body.y + r.y, z: body.z + r.z }, timeSeconds: t };
   });
 }
@@ -195,6 +204,54 @@ describe('local frame for a trajectory', () => {
     // units, so a lunar trajectory is drawn rather than silently clipped.
     const sceneRadius = (384400e3 / R_EARTH) * DRAWN_EARTH;
     expect(sceneRadius).toBeLessThan(DEFAULT_ENVELOPE_UNITS);
+  });
+
+  it('draws a craft that never moves relative to the body at the origin', () => {
+    // The invariant the whole frame rests on: the result is the body-relative path. A craft
+    // sitting on the body's centre at every sample is therefore the origin at every sample,
+    // however far the body itself travels. Measuring the body's position at the epoch instead
+    // drew this as a 10.2-unit streak after 30 minutes, and 64.7 units over the bundled LEO
+    // horizon - the body's own orbital motion, presented as the craft's.
+    const pts = [0, 60, 600, 1800, 11600].map((t) => ({
+      r: bodyPosition('earth', EPOCH_TT + t / SECONDS_PER_DAY),
+      timeSeconds: t,
+    }));
+    const result = toLocalFrame(pts, { centralBody: 'earth', epochJdTt: EPOCH_TT });
+    expect(result.extentUnits).toBeLessThan(1e-9);
+    expect(result.clippedPoints).toBe(0);
+    for (let i = 0; i < result.pointTimes.length; i++) {
+      const p = pointAt(result, i);
+      expect(Math.hypot(p.x, p.y, p.z)).toBeLessThan(1e-9);
+    }
+  });
+
+  it('draws a constant-radius orbit at constant radius, over a real horizon', () => {
+    // The same invariant in the form a user sees: the drawn path's extent must match the
+    // orbit it is meant to depict, not the body's travel over the horizon. Measured before
+    // the fix: the 550 km LEO orbit had a 1.35-unit radius and a 64.68-unit extent.
+    const radius = R_EARTH + 550e3;
+    const period = 5677;
+    const pts = Array.from({ length: 40 }, (_, i) => {
+      const t = (i / 39) * period;
+      const theta = (2 * Math.PI * t) / period;
+      return {
+        r: {
+          x: radius * Math.cos(theta),
+          y: radius * Math.sin(theta),
+          z: 0,
+        },
+        t,
+      };
+    });
+    const heliocentric = pointsFromOffsets(pts);
+    const result = toLocalFrame(heliocentric, { centralBody: 'earth', epochJdTt: EPOCH_TT });
+    const expected = (radius / R_EARTH) * DRAWN_EARTH;
+    expect(result.extentUnits).toBeCloseTo(expected, 6);
+    // Every drawn point is on that circle, so no sample has been nudged by the body's motion.
+    for (let i = 0; i < result.pointTimes.length; i++) {
+      const p = pointAt(result, i);
+      expect(Math.hypot(p.x, p.y, p.z)).toBeCloseTo(expected, 6);
+    }
   });
 });
 

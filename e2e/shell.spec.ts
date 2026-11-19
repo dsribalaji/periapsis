@@ -226,18 +226,30 @@ test.describe('mission and maneuvers', () => {
     await page.goto('/');
     await page.getByLabel('Scenario').selectOption('leo-raise');
     const altitude = page.getByTestId('mission-altitude');
+    const apoapsis = page.getByTestId('mission-apoapsis');
 
     // The scenario opens paused at the epoch: radius is exactly the initial orbit.
     await expect(altitude).toHaveText('550.0 km');
+
+    // The panel's live radius and its own apoapsis must agree. Before the frame fix the live
+    // radius was taken from a wrongly anchored drawing, so this read "Radius now 343,389.8 km"
+    // directly above "Apoapsis 7,151.9 km" - a 48x self-contradiction that a wide numeric
+    // tolerance happily passed.
+    const km = async (testid: string): Promise<number> =>
+      Number.parseFloat(((await page.getByTestId(testid).textContent()) ?? '').replace(' km', ''));
+    expect(await km('mission-radius')).toBeLessThanOrEqual((await km('mission-apoapsis')) + 10);
 
     // Fly at warp 100 for a while and check the craft is still on a sane orbit.
     await page.getByRole('button', { name: '100', exact: true }).click();
     await expect(altitude).not.toHaveText('550.0 km', { timeout: 15000 });
 
-    const text = (await altitude.textContent()) ?? '';
-    const km = Number.parseFloat(text.replace(' km', ''));
-    expect(km).toBeGreaterThan(-1000);
-    expect(km).toBeLessThan(1000);
+    // A node-free circular orbit cannot leave 550 km, and even after the raise node the craft
+    // is under 800 km. A tolerance of +/-1000 km is what let the old bug through; the true
+    // bound is the plan's own apoapsis, which is what the assertion now uses.
+    const live = await km('mission-radius');
+    expect(live).toBeGreaterThan(6800);
+    expect(live).toBeLessThanOrEqual((await km('mission-apoapsis')) + 10);
+    void apoapsis;
   });
 
   test('the maneuver node is drawn as applied once the clock passes it', async ({ page }) => {
@@ -503,26 +515,28 @@ test.describe('porkchop plot', () => {
   });
 });
 
-test.describe('transfer to maneuver node', () => {
-  /**
-   * Clicks a fractional point of the plot, which *selects* the cell.
-   *
-   * A click rather than a hover is what the workflow needs: the departure button sits below the
-   * plot, and moving the pointer to it raises `pointerleave` on the canvas. A hover-only design
-   * would therefore disable the button at the instant the user reached for it.
-   */
-  const chooseCell = async (
-    page: import('@playwright/test').Page,
-    fx: number,
-    fy: number,
-  ): Promise<void> => {
-    const canvas = page.getByTestId('porkchop-canvas');
-    await canvas.scrollIntoViewIfNeeded();
-    const box = await canvas.boundingBox();
-    if (!box) throw new Error('porkchop canvas has no box');
-    await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
-  };
+/**
+ * Clicks a fractional point of the plot, which *selects* the cell.
+ *
+ * A click rather than a hover is what the workflow needs: the departure button sits below the
+ * plot, and moving the pointer to it raises `pointerleave` on the canvas. A hover-only design
+ * would therefore disable the button at the instant the user reached for it.
+ *
+ * Module scope rather than inside one `describe`, because more than one block plans a departure.
+ */
+const chooseCell = async (
+  page: import('@playwright/test').Page,
+  fx: number,
+  fy: number,
+): Promise<void> => {
+  const canvas = page.getByTestId('porkchop-canvas');
+  await canvas.scrollIntoViewIfNeeded();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('porkchop canvas has no box');
+  await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+};
 
+test.describe('transfer to maneuver node', () => {
   const openComputeAndChoose = async (page: import('@playwright/test').Page): Promise<void> => {
     await page.getByTestId('porkchop-toggle').click();
     await page.getByTestId('porkchop-compute').click();
@@ -632,5 +646,70 @@ test.describe('transfer to maneuver node', () => {
       await page.getByTestId('porkchop-plan-departure').click();
       await expect(nodes).toHaveCount(expected);
     }
+  });
+});
+
+test.describe('the GTO and Earth-Mars scenarios', () => {
+  test('the GTO scenario shows both burns and a circularised geostationary orbit', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('gto-transfer');
+
+    const nodes = page.getByTestId('mission-nodes').locator('.node-row');
+    await expect(nodes).toHaveCount(2);
+    await expect(nodes.nth(0)).toContainText('Perigee raise');
+    await expect(nodes.nth(1)).toContainText('GEO insertion');
+
+    // Planned delta-v is the two measured burns, and the budget has room left.
+    await expect(page.getByTestId('mission-planned')).toHaveText('4258.4 m/s');
+
+    // At the end of the plan the craft is on a circular, equatorial orbit at 42,164 km. The
+    // radius readout is derived from the drawn path and the apoapsis from the propagated
+    // states, so agreeing values mean the two halves of the panel are talking about one orbit.
+    const radius = Number.parseFloat(
+      ((await page.getByTestId('mission-radius').textContent()) ?? '').replace(' km', ''),
+    );
+    const apoapsis = Number.parseFloat(
+      ((await page.getByTestId('mission-apoapsis').textContent()) ?? '').replace(' km', ''),
+    );
+    expect(apoapsis).toBeCloseTo(42164, -2);
+    expect(radius).toBeLessThanOrEqual(apoapsis + 50);
+  });
+
+  test('the GTO plan starts at the epoch, so the perigee burn is spent before anything moves', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('gto-transfer');
+    // The node is at T+0 and the clock starts there, so the burn is already applied.
+    await expect(page.getByTestId('mission-nodes').locator('.node-row').first()).toHaveClass(
+      /applied/,
+    );
+    await expect(page.getByTestId('mission-spent')).toHaveText('2427.8 m/s');
+  });
+
+  test('the Earth-Mars scenario opens with a park and no node, ready for a departure', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('earth-mars-departure');
+
+    // A 300 km circular park, nothing planned.
+    await expect(page.getByTestId('mission-altitude')).toHaveText('300.0 km');
+    await expect(page.getByTestId('mission-no-nodes')).toBeVisible();
+    await expect(page.getByTestId('mission-planned')).toHaveText('0.0 m/s');
+
+    // The point of the scenario: one click on the plot turns the 2028 window into a burn.
+    await page.getByTestId('porkchop-toggle').click();
+    await page.getByTestId('porkchop-compute').click();
+    await expect(page.getByTestId('porkchop-canvas')).toBeVisible({ timeout: 20_000 });
+    await chooseCell(page, 0.5, 0.5);
+    await page.getByTestId('porkchop-plan-departure').click();
+
+    // The burn is kilometres per second, the plan extends to reach it, and the panel says so.
+    await expect(page.getByTestId('mission-planned')).not.toHaveText('0.0 m/s');
+    await expect(page.getByTestId('porkchop-departure-note')).toBeVisible();
+    await expect(page.getByTestId('mission-aliased')).toBeVisible();
   });
 });

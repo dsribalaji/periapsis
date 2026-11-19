@@ -3,7 +3,7 @@
 An offline orbital mechanics sandbox and mission designer. Runs entirely in the browser,
 needs no account, no server and no network at runtime.
 
-**Status: in development.** The physics core is complete and tested (532 unit tests); the 3D
+**Status: in development.** The physics core is complete and tested (541 unit tests); the 3D
 application shell runs with scenario loading, mouse camera control, time controls and a working
 mission layer — a spacecraft flies a planned path drawn in the view, with maneuver nodes and a
 delta-v budget. A porkchop plot finds interplanetary launch windows by solving Lambert's problem
@@ -14,13 +14,18 @@ today and `PLAN.md` for the milestone backlog.
 
 ## What works today
 
-The app: a 3D solar-system view with a draggable, zoomable camera, four bundled scenarios, a
+The app: a 3D solar-system view with a draggable, zoomable camera, six bundled scenarios, a
 warp clock from 1× to 10⁷×, an inspector, a mission panel showing a craft's trajectory, altitude
 and delta-v budget as the clock advances, and a porkchop plot with a hover readout. Click a cell
 and press "Plan departure" and the cell becomes a maneuver node on the craft — the real impulsive
 burn out of its parking orbit, with the Oberth effect, the plane-change penalty the geometry
 forces, and the timing shift onto the cheapest point of the orbit all reported rather than
 assumed.
+
+The six scenarios are two system views, a 550 km orbit with a raise node, a full GTO-to-GEO
+transfer whose apogee burn combines its plane change with its circularisation (4,258 m/s, saving
+1,151 m/s against doing the two separately), and a 300 km, 51.6-degree park with the 2028 Mars
+window one porkchop click away.
 
 The pure physics core, as a library under `src/core`:
 
@@ -52,8 +57,8 @@ npm run dev        # http://localhost:5183
 To check it:
 
 ```
-npm run verify     # typecheck + lint + 532 unit tests + build
-npm run test:e2e   # 32 Playwright tests against the real app
+npm run verify     # typecheck + lint + 541 unit tests + build
+npm run test:e2e   # 35 Playwright tests against the real app
 ```
 
 ## Stack
@@ -70,8 +75,8 @@ convention, so the boundary cannot quietly erode (ADR-0001).
 | Command             | What it does                               |
 | ------------------- | ------------------------------------------ |
 | `npm run dev`       | Vite dev server on http://localhost:5183   |
-| `npm test`          | unit tests (532)                           |
-| `npm run test:e2e`  | Playwright end-to-end tests (32)           |
+| `npm test`          | unit tests (541)                           |
+| `npm run test:e2e`  | Playwright end-to-end tests (35)           |
 | `npm run typecheck` | `tsc` with strict settings                 |
 | `npm run lint`      | ESLint, including the core-purity boundary |
 | `npm run build`     | typecheck + production build               |

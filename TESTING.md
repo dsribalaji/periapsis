@@ -67,6 +67,7 @@ clock on screen advances" is an e2e test. The overlap is deliberately small.
 | A hover that drives a button      | `pointerleave` clears it exactly as the user reaches the button                                            | Select on click, and act on the selection (D-027)                     |
 | Two axis ticks, one label         | A narrow range rounds two ticks to the same string, so `key={label}` duplicates                            | Key by position, not by text                                          |
 | Wall-clock assertions on a laptop | The CPU idles at 1.5 GHz of 2.2 GHz on battery, so a timing budget fails for reasons unrelated to the code | Compare measurements taken in the same clock state, or record both    |
+| A wide numeric tolerance          | ±1,000 km around an altitude passed a readout that was wrong by 343,000 km                                 | Assert a readout against another readout, not against a constant      |
 
 A fourth rule, learned the hard way in M5.3: **a test that hovers must also prove the hover
 survives.** Replacing a short hint with a tall list reflows the sidebar, which moves the plot
@@ -83,6 +84,16 @@ test now extracts the departure date and the scenario epoch and asserts the orde
 them, which is the property that actually matters (a past cell cannot become a node). A date
 literal in an assertion is usually a measurement wearing an invariant's clothes.
 
+A sixth, from M5.5, and the most expensive one so far: **a tolerance wide enough to absorb a real
+error is not a tolerance, it is a blindfold.** The e2e test for the mission altitude asserted
+`-1000 < altitude < 1000` km, a range chosen to mean "sane" for an orbit at 550 km. It passed
+while the app was reporting 337,018.8 km, because the defect it should have caught was in the
+frame the _live radius_ is derived from and the number it read was simply not on the same orbit as
+the plan. Two things fixed it: the live radius is now asserted against the panel's own apoapsis
+(two readouts that describe the same orbit must agree), and the regression test is a craft that
+does not move relative to its body, which must draw as a point. A tolerance has to be derived from
+what the system can actually do, not picked to be safely round.
+
 ## Coverage
 
 `vitest` reports coverage over `src/core`, `src/sim` and `src/scenarios` only. `src/render` and
@@ -96,6 +107,15 @@ mapping, the axis ticks, the hover readout, the cell-to-node conversion and the 
 are all arithmetic, so they are asserted directly and the canvas keeps only the `putImageData`
 call. That canvas is 2D, so its e2e test reads it back with `getImageData` directly — the
 screenshot-decode path below is only needed for the WebGL view.
+
+The bundled scenarios are covered from two directions, and both are needed. `scenario.test.ts`
+validates every entry structurally, so a malformed scenario cannot ship. It also re-derives the
+hard-coded burns in `gto-transfer` and `earth-mars-departure` from `hohmannTransfer` and the
+circularisation geometry (D-033): a literal burn is a measurement, and a measurement that nothing
+recomputes goes stale silently — the scenario would still load and still draw, with a burn that no
+longer reaches where its own description says. `e2e/shell.spec.ts` then asserts the scenarios in
+the running app, because "the data is right" and "the app does the right thing with it" are
+different claims.
 
 Note on screenshots: the agent building this cannot view images, so a screenshot is never
 evidence in itself. `scripts/inspect-screenshot.mjs <file>` decodes one and reports its

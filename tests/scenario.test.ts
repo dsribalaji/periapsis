@@ -10,6 +10,7 @@ import { SCENARIO_SCHEMA_VERSION } from '../src/scenarios/types.js';
 import { jdFromIsoUtc } from '../src/core/time/time.js';
 import { BODIES } from '../src/core/ephemeris/solarSystem.js';
 import { WARP_STEPS } from '../src/sim/clock.js';
+import { hohmannTransfer } from '../src/core/transfer/transfers.js';
 
 const valid = {
   schemaVersion: SCENARIO_SCHEMA_VERSION,
@@ -72,6 +73,98 @@ describe('bundled scenarios', () => {
     const pair = scenarioById('earth-moon');
     expect(pair?.view.centeredOn).toBe('focus');
     expect(pair?.view.distanceUnits).toBeLessThan(200);
+  });
+});
+
+describe('mission scenarios carry numbers that agree with the physics', () => {
+  /**
+   * The GTO scenario is two nodes and a claim: that combining a plane change with a
+   * circularisation is cheaper than doing them separately. Both halves of that claim are
+   * recomputed here from `hohmannTransfer`, so the scenario cannot drift into showing a burn
+   * that no longer matches the transfer it says it is.
+   */
+  it('the GTO perigee burn is the Hohmann departure burn from its own park', () => {
+    const scenario = scenarioById('gto-transfer');
+    const mission = scenario?.mission;
+    expect(mission).toBeDefined();
+    if (!mission) return;
+
+    const r1 = BODIES.earth.radius + mission.orbit.altitudeM;
+    const r2 = 42164e3;
+    const hohmann = hohmannTransfer(r1, r2, BODIES.earth.mu);
+    const node = mission.maneuvers[0]!;
+
+    expect(node.timeSeconds).toBe(0);
+    expect(node.frame).toBe('local');
+    // Prograde only: a Hohmann departure from a circular orbit has no other component.
+    expect(node.b).toBe(0);
+    expect(node.c).toBe(0);
+    expect(node.a).toBeCloseTo(hohmann.legs[0]!.deltaV, 1);
+  });
+
+  it('the GTO apogee burn is cheaper than circularising and turning separately', () => {
+    const scenario = scenarioById('gto-transfer');
+    const mission = scenario?.mission;
+    expect(mission).toBeDefined();
+    if (!mission) return;
+
+    const r1 = BODIES.earth.radius + mission.orbit.altitudeM;
+    const r2 = 42164e3;
+    const mu = BODIES.earth.mu;
+    const hohmann = hohmannTransfer(r1, r2, mu);
+    const node = mission.maneuvers[1]!;
+
+    // The node is at the end of the half-ellipse and nowhere else.
+    expect(node.timeSeconds).toBeCloseTo(hohmann.duration, -2);
+
+    // Rebuild what the node's own components produce, in the circularisation frame: the
+    // prograde component must close the gap between the transfer's apogee speed and the
+    // circular speed, and the normal component must supply the whole plane change.
+    const vCircular = Math.sqrt(mu / r2);
+    const vApoapsis = Math.sqrt(mu * (2 / r2 - 1 / ((r1 + r2) / 2)));
+    const incidence = mission.orbit.inclinationRad;
+    const expectedPrograde = vCircular * Math.cos(incidence) - vApoapsis;
+    const expectedNormal = vCircular * Math.sin(incidence);
+
+    expect(node.a).toBeCloseTo(expectedPrograde, 0);
+    expect(node.b).toBeCloseTo(expectedNormal, 0);
+    expect(node.c).toBe(0);
+
+    const combined = Math.hypot(node.a, node.b);
+    const separate = hohmann.legs[1]!.deltaV + 2 * vCircular * Math.sin(incidence / 2);
+    // The saving is the reason this scenario exists, and it is not a rounding difference.
+    expect(combined).toBeLessThan(separate);
+    expect(separate - combined).toBeGreaterThan(1000);
+    expect(separate - combined).toBeLessThan(1300);
+  });
+
+  it('keeps the GTO plan inside its budget and its nodes inside its horizon', () => {
+    for (const id of ['leo-raise', 'gto-transfer', 'earth-mars-departure']) {
+      const mission = scenarioById(id)?.mission;
+      expect(mission, `${id} should carry a mission`).toBeDefined();
+      if (!mission) continue;
+      const planned = mission.maneuvers.reduce((s, m) => s + Math.hypot(m.a, m.b, m.c), 0);
+      expect(planned, `${id} should fit its budget`).toBeLessThanOrEqual(mission.deltaVBudget);
+      for (const m of mission.maneuvers) {
+        expect(m.timeSeconds, `${id} node ${m.id} inside the horizon`).toBeLessThanOrEqual(
+          mission.horizonSeconds,
+        );
+      }
+    }
+  });
+
+  it('the Earth-Mars park matches the inclination its departure solve was measured at', () => {
+    const mission = scenarioById('earth-mars-departure')?.mission;
+    expect(mission).toBeDefined();
+    if (!mission) return;
+    // 51.6 degrees is load-bearing: at that inclination the cheapest 2028 cell costs
+    // 4,338 m/s against 6,581 from an equatorial park (PHYSICS.md section 12.4). A different
+    // park would leave the scenario's description and its budget describing another mission.
+    expect((mission.orbit.inclinationRad * 180) / Math.PI).toBeCloseTo(51.6, 6);
+    expect(mission.orbit.altitudeM).toBe(300e3);
+    // No node: the scenario exists so the first action is clicking a porkchop cell.
+    expect(mission.maneuvers).toHaveLength(0);
+    expect(mission.deltaVBudget).toBeGreaterThan(4338);
   });
 });
 

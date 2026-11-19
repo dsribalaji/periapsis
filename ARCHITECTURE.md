@@ -71,7 +71,7 @@ stated in the module header and each is covered by a test.
 A scenario is a starting point: epoch, start warp, focus body, camera framing, and optionally a
 mission. It carries no orbital state, so it can never contradict the ephemeris. `validate.ts`
 checks structure and returns a list of `{path, message}` issues rather than throwing, which is
-what an import error report needs. `catalogue.ts` holds the four bundled scenarios and validates
+what an import error report needs. `catalogue.ts` holds the six bundled scenarios and validates
 them at module load, so a malformed built-in fails immediately instead of half-loading the app.
 
 The mission field follows the same principle one level down: a spacecraft is an orbit
@@ -88,8 +88,13 @@ UI, because a compressed layout that is not labelled is a lie.
 
 `trajectoryLines.ts` is pure geometry: it converts a heliocentric trajectory into body-centred
 scene units using the same exaggeration the body's own radius uses, and emits disjoint vertex
-pairs in time order. Being pure, it is unit-tested directly rather than through a screenshot. The
-two frame-and-scale decisions it makes are recorded in PHYSICS.md §10 and D-014/D-015.
+pairs in time order. "Body-centred" means the body's position **at each sample's own time**, which
+is the one anchoring that is correct: the group transform then adds the body's live position back,
+so subtracting the epoch position instead would count the body's travel twice. That mistake is
+what M5.5 fixed (D-032, PHYSICS.md §10.2), and it is why the module's regression tests include a
+craft that never moves relative to its body, which must therefore draw as a single point. Being
+pure, this module is unit-tested directly rather than through a screenshot. The two
+frame-and-scale decisions it makes are recorded in PHYSICS.md §10 and D-014/D-015/D-032.
 
 `scene.ts` owns every Three.js object and is the only place that touches WebGL. `update()`
 receives positions and draws them; it never asks the simulation for anything. It also handles
