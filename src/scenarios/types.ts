@@ -15,8 +15,13 @@ import type { RadialMode } from '../render/scale.js';
 import type { Warp } from '../sim/clock.js';
 import type { CraftSpec } from '../sim/craft.js';
 
-/** Bump only for a breaking change. Readers must reject versions they do not know. */
-export const SCENARIO_SCHEMA_VERSION = 1;
+/**
+ * Bump only for a breaking change. Readers must reject versions they do not know.
+ *
+ * 2: bodies are drawn at true scale, so a body-centred `view.distanceUnits` means something
+ * different (D-047). A version-1 file is upgraded by `migrate.ts`, not refused.
+ */
+export const SCENARIO_SCHEMA_VERSION = 2;
 
 /**
  * Camera framing, in the renderer's own units and angles.
@@ -31,17 +36,16 @@ export interface ScenarioView {
   readonly azimuthRad: number;
   /** Angle above the ecliptic plane, radians, clamped to (-pi/2, pi/2). */
   readonly elevationRad: number;
-  /** Camera distance from the target, scene units. */
+  /** Camera distance from the target, scene units (100 per AU, true scale). */
   readonly distanceUnits: number;
   /**
    * What the camera looks at.
    *
    * - `sun` — a system-wide view, for the inner or whole system.
    * - `focus` — the selected body, for a single planet or a craft's orbit around it.
-   * - `pair` — the midpoint between the selected body and its parent. Needed for the
-   *   Earth-Moon view: now that the Moon is drawn at its true 72-unit separation, a camera
-   *   aimed at *either* endpoint puts the other one off the edge of the frame. Aiming at the
-   *   midpoint is the only framing that shows both.
+   * - `pair` — the midpoint between the selected body and its parent, at a distance fitted to
+   *   their separation. Aiming at either end of the Earth-Moon pair puts the other one off
+   *   the edge of the frame; the midpoint is the framing that shows both.
    */
   readonly centeredOn: 'sun' | 'focus' | 'pair';
 }

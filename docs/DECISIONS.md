@@ -723,11 +723,13 @@ The rule now: a body whose parent is not the Sun is drawn at its true radius rat
 parent, and placed at the parent's own exaggeration. A body with no parent, or whose parent is
 the Sun, keeps cube-root compression and the radial mapping.
 
-The second half matters as much as the first. Applying the parent-relative rule to *planets*
+The second half matters as much as the first. Applying the parent-relative rule to _planets_
 was a real regression made while fixing this: it placed Earth 1,233 units from the Sun instead
 of 100, which is off-camera in every scenario, and the app still started cleanly with every
 existing test green. Placement is now pinned by `tests/placement.test.ts`, which asserts that
 the two rules disagree by more than 500 units for Earth so a test cannot pass under both.
+(Superseded by D-047: with one scale there is no second placement rule, and that test file was
+replaced by the true-scale assertions in `tests/scale.test.ts`.)
 
 The costs, stated plainly:
 
@@ -735,7 +737,7 @@ The costs, stated plainly:
   drawn 7% larger than truth. The old fudge cost 240%. The test asserts the bound rather than
   claiming exactness.
 - A 384,400 km separation drawn at 72.4 units is not to scale with the 100-unit AU. It never
-  was - that is the compromise in §10.3, now extended from trajectories to the bodies
+  was - that is the compromise in ï¿½10.3, now extended from trajectories to the bodies
   themselves. The alternative (honest 0.257 units) is a Moon inside the Earth.
 - The compressed whole-system layout cannot use this rule at all. A log-radius map has no room
   for a 72-unit satellite offset, so there the Moon is drawn at three parent radii and reads as
@@ -748,7 +750,6 @@ small body its hit target), and the Moon was not scaled up "just enough to see" 
 A side effect worth recording, because it was free: the free-return scenario drew its lunar
 flyby at 72.4 units while the Moon was drawn at 0.257, so the spacecraft flew past empty space.
 The two numbers now agree by construction rather than by coincidence.
-
 
 ## D-044 - Surfaces are procedural, deterministic, and generated at runtime
 
@@ -776,7 +777,6 @@ The honest limitation: these are plausible planets, not real ones. Earth's conti
 thresholded at sea level, not coasts. The existing caveat about approximate ephemerides covers
 position; this is scenery, and the same caveat applies to it.
 
-
 ## D-045 - A camera aimed at one body cannot frame a pair, so the pair has its own centre
 
 Once the Moon was correctly drawn 72.4 units from Earth, `earth-moon` broke: the scenario centred
@@ -791,6 +791,7 @@ came with a validation test accepting all three values and a scenario test asser
 The point is small but worth stating: the framing was not "a bit tight", it was arithmetically
 impossible. At true separation there is no single-body target that holds both, and the fix had
 to be a new kind of target rather than a larger number.
+
 ## D-046 - Procedural textures have a pixel budget, because boot time is a feature
 
 The first version of the procedural textures asked for 1024x1024 for the Sun and 512 for most
@@ -806,11 +807,11 @@ test slower, and the only reason it was visible is that the suite has a budget.
 The fix is a budget per body, chosen from how many pixels the body can actually cover rather
 than from a round number:
 
-| Body                    | Size  | Why                                                        |
-| ----------------------- | ----- | ---------------------------------------------------------- |
-| Earth, Sun              | 256   | The two the camera approaches. Earth fills the viewport in `leo-raise`; the Sun reaches ~460 px in the inner system. |
-| Jupiter/Saturn/Uranus/Neptune | 128 | ~30-60 px in the whole-system view, never more than a few hundred. |
-| Mercury/Venus/Moon/Mars | 96    | A few tens of pixels at most.                              |
+| Body                          | Size | Why                                                                                                                  |
+| ----------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------- |
+| Earth, Sun                    | 256  | The two the camera approaches. Earth fills the viewport in `leo-raise`; the Sun reaches ~460 px in the inner system. |
+| Jupiter/Saturn/Uranus/Neptune | 128  | ~30-60 px in the whole-system view, never more than a few hundred.                                                   |
+| Mercury/Venus/Moon/Mars       | 96   | A few tens of pixels at most.                                                                                        |
 
 Measured after the change: all bodies together take ~760 ms, and first interaction is 1.5 s.
 The regression is 20x on the metric that matters, and the per-pixel quality is unchanged at the
@@ -820,3 +821,54 @@ What was deliberately not done: the textures were not moved to a worker, made la
 or cached. Each is a real option and each is more machinery than a 760 ms load justifies. If a
 body ever needs more than 256, the budget is the place to negotiate that, and the number to
 measure is time-to-interaction rather than the texture's own edge length.
+
+## D-047 - One true scale, and visibility in pixels (ADR-0008)
+
+The Earth-Moon scenario drew the Moon next to the Sun. The cause was not the Moon: it was the
+282x body exaggeration, which forced satellites and trajectories to the same factor and put the
+Moon 72 units from an Earth that is 100 units from the Sun. The uncommitted follow-up hid the
+Moon at system zoom, which removed the wrong picture without fixing it and also hid the Moon in
+the scenario built to show it. That change was discarded.
+
+Replaced by one scale for every length, with a per-frame minimum size in pixels so distant bodies
+stay visible, and a 3 px separation rule for satellites. The reasoning, the rejected options and
+the costs are in ADR-0008. Consequences recorded here because they are small calls:
+
+- Scenario schema 2. Body-centred camera distances are divided by the old exaggeration on load,
+  so a saved v1 file opens framed as it was saved (`migrate1to2`, tested against the v1.0.0 LEO
+  numbers: 26 units became 0.0923).
+- The bundled close-ups were reframed rather than mechanically converted where the old framing
+  was wrong too: the lunar free return could never fit its own flyby (0.75 units now holds it),
+  and the LEO view is tighter so the 550 km orbit is visible against a true-size Earth.
+- Orbit rings are now each body's osculating ellipse at the current epoch, rebuilt after ten
+  simulated days. The old fixed circles left Mercury visibly off its own ring.
+- `textureSize` is per body rather than per drawn radius (there is no fixed drawn radius any
+  more). Moon, Mars, Jupiter and Saturn went to 192 px because they are the usual "frame this"
+  targets; Mercury, Venus, Uranus and Neptune to 128.
+
+## D-048 - Every in-plane angle in `stateToElements` is an atan2
+
+The round-trip property test failed on a random seed (fast-check `-1688004366`): an e = 0.79 orbit
+3e-10 rad short of apoapsis came back with a 1.2e-7 velocity error against a 1e-7 bound. The
+comment beside the bound already explained the mechanism - `acos` of a cosine near +/-1 loses
+half the mantissa - and the inclination had already been moved to `atan2` for that reason. The
+true anomaly, argument of periapsis and argument of latitude had not.
+
+The bound was not loosened. All three now take `atan2(sine, cosine)`, with the sine taken from a
+cross product along h-hat, which also removes the hand-written sign patches. The counterexample
+is pinned as its own test (now ~1e-16), and the property passed 40,000 runs locally after the
+change.
+
+## D-049 - The selection reticle, labels and the follow camera are scene concerns
+
+Three small UI calls that came with the true-scale renderer:
+
+- **Labels are decluttered by priority** (selected body, then the Sun, then by real size). At
+  whole-system zoom the inner planets are a few pixels apart; printing four names on top of each
+  other is worse than printing the most relevant one.
+- **The selected body gets a reticle** only while it is under 18 px in radius. A marker around a
+  body you can plainly see is noise.
+- **Framing a body flies to it** over 0.9 s with distance interpolated in log space, and the
+  camera then follows that body. Scenario loads and the scale-mode toggle are instant, because
+  the layout itself changes under the camera and there is no meaningful path. Reduced motion is
+  honoured: the flight is skipped.

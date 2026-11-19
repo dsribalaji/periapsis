@@ -127,8 +127,9 @@ multiplier.
 **Compressed radial mode** — the logarithmic mapping of heliocentric distance to scene units.
 Ordering and angles are exact; distances and sizes are not. Labelled in the UI.
 
-**Display radius** — a body's drawn size, a cube-root-compressed function of its true radius, so
-that a satellite and a star are both visible in the same scene.
+**Drawn radius** — a body's size on screen: its true radius at the scene's single scale, or a
+minimum size in pixels (`MIN_PIXEL_RADIUS`) when the true size would be too small to see.
+Recomputed every frame from the camera distance. Never smaller than the truth (ADR-0008).
 
 **Linear radial mode** — the honest mapping: scene units proportional to metres. Only the inner
 solar system fits on screen this way.

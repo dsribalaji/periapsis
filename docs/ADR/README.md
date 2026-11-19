@@ -15,6 +15,7 @@ file and gains a **Status** line saying what replaced it.
 | [0005](ADR-0005-lambert.md)             | Lambert: universal variables, bisection on time of flight                        | accepted |
 | [0006](ADR-0006-simulation-clock.md)    | Simulation clock: fixed step, clamped real time, coarsening as the release valve | accepted |
 | [0007](ADR-0007-scenario-validation.md) | Scenarios are validated data, not code                                           | accepted |
+| [0008](ADR-0008-true-scale-bodies.md)   | Bodies at true scale, visible by a minimum size in pixels                        | accepted |
 
 ## Writing a new one
 

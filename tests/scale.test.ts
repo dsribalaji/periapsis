@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
-  bodyRelativeScale,
-  displayRadius,
-  displayRadiusFor,
-  parentRelativeOffset,
-  scaleOffset,
-  toScene,
+  drawnRadiusUnits,
+  localUnitsPerMetre,
+  MIN_PIXEL_RADIUS,
   radialUnits,
+  satelliteResolvable,
+  scaleOffset,
   scalePosition,
+  toScene,
+  trueRadiusUnits,
+  unitsPerPixelAt,
   UNITS_PER_AU,
   UNITS_PER_M,
-  MIN_DISPLAY_RADIUS,
 } from '../src/render/scale.js';
 import { AU_M, RADIUS } from '../src/core/constants.js';
-import { BODIES } from '../src/core/ephemeris/solarSystem.js';
+import { BODY_IDS } from '../src/core/ephemeris/solarSystem.js';
 
 describe('scene scale', () => {
   it('puts one AU at the chosen unit distance', () => {
@@ -45,60 +46,140 @@ describe('scene scale', () => {
     const sceneLength = Math.hypot(sx, sy, sz);
     expect(sceneLength / physicsLength).toBeCloseTo(UNITS_PER_M, 15);
   });
+});
 
-  it('compresses radii by a cube root while preserving order', () => {
-    const rEarth = displayRadius(RADIUS.earth);
-    const rJupiter = displayRadius(RADIUS.jupiter);
-    const rMoon = displayRadius(RADIUS.moon);
-    const rSun = displayRadius(RADIUS.sun);
-
-    expect(rSun).toBeGreaterThan(rJupiter);
-    expect(rJupiter).toBeGreaterThan(rEarth);
-    expect(rEarth).toBeGreaterThan(rMoon);
-    // Earth is the reference radius.
-    expect(rEarth).toBeCloseTo(1.2, 9);
+/**
+ * One scale for positions and sizes.
+ *
+ * The regression these guard is the one that shipped in v1.0.0: bodies were drawn 282x too
+ * large, satellites were pushed out by the same factor to clear them, and the Moon ended up
+ * three quarters of the way from Earth to the Sun. With a single scale, every relation below
+ * holds by construction, and the tests say so in the numbers a user would check.
+ */
+describe('true-scale bodies', () => {
+  it('draws Earth at its real radius on the same scale as its orbit', () => {
+    const earth = trueRadiusUnits(RADIUS.earth);
+    expect(earth).toBeCloseTo(RADIUS.earth * UNITS_PER_M, 15);
+    // 1 AU is 23,481 Earth radii, and the scene must say the same.
+    expect(UNITS_PER_AU / earth).toBeCloseTo(AU_M / RADIUS.earth, 6);
   });
 
-  it('turns a 1e3 radius ratio into roughly a 1e1 display ratio', () => {
-    const ratio = displayRadius(RADIUS.jupiter) / displayRadius(RADIUS.earth);
-    const trueRatio = RADIUS.jupiter / RADIUS.earth;
-    // Cube root of the true ratio: 10.97^(1/3) ~ 2.2
-    expect(ratio).toBeCloseTo(Math.cbrt(trueRatio), 9);
-    expect(ratio).toBeLessThan(trueRatio);
+  it("puts the Moon 60 Earth radii out: well clear of Earth, well inside Earth's orbit", () => {
+    const earth = trueRadiusUnits(RADIUS.earth);
+    const moon = trueRadiusUnits(RADIUS.moon);
+    const separation = 3.844e8 * UNITS_PER_M;
+    expect(separation / earth).toBeCloseTo(60.3, 1);
+    expect(separation).toBeGreaterThan(earth + moon);
+    // The v1.0.0 placement drew the Moon 72 units from Earth, 0.72 of the way to the Sun.
+    // The true separation is 0.26% of Earth's orbit radius.
+    expect(separation / UNITS_PER_AU).toBeLessThan(0.003);
   });
 
-  it('keeps every body visible above the minimum size', () => {
-    for (const [, r] of Object.entries(RADIUS)) {
-      expect(displayRadius(r)).toBeGreaterThan(0);
-    }
-    expect(displayRadiusFor('moon', RADIUS.moon)).toBeGreaterThanOrEqual(MIN_DISPLAY_RADIUS);
+  it('draws the Moon at its true size ratio to Earth', () => {
+    const ratio = trueRadiusUnits(RADIUS.moon) / trueRadiusUnits(RADIUS.earth);
+    expect(ratio).toBeCloseTo(0.2727, 3);
   });
 
-  it('draws the Moon smaller than Earth, at its true size ratio', () => {
-    // This test previously asserted a deliberate 1.6x exaggeration that made the Moon *larger*
-    // than the Earth it orbits (1.245 against 1.200). That was the bug: a moon bigger than its
-    // planet is not a visibility compromise, it is a wrong picture. The requirement it was
-    // really serving — the Moon is visible beside Earth — is now met by placing it at the
-    // parent-relative distance instead of by inflating its radius.
-    const moon = displayRadiusFor('moon', RADIUS.moon);
-    const earth = displayRadiusFor('earth', RADIUS.earth);
-    expect(moon).toBeLessThan(earth);
-
-    // The underlying ratio is exactly true; the drawn one is a touch larger only because the
-    // Moon's true-ratio radius (0.327 units) sits just under the 0.35 clickability floor.
-    const trueRatio = RADIUS.moon / RADIUS.earth;
-    expect(trueRatio).toBeCloseTo(0.2727, 3);
-    expect(moon / earth).toBeGreaterThanOrEqual(trueRatio);
-    expect(moon / earth).toBeCloseTo(Math.max(MIN_DISPLAY_RADIUS / earth, trueRatio), 9);
-    // The clamp costs at most 7% in size — the old fudge cost 240%.
-    expect(moon / earth).toBeLessThan(trueRatio * 1.1);
+  it('puts a 400 km orbit just above the true surface', () => {
+    const surface = trueRadiusUnits(RADIUS.earth);
+    const orbit = (RADIUS.earth + 400e3) * UNITS_PER_M;
+    expect(orbit).toBeGreaterThan(surface);
+    expect(orbit / surface).toBeCloseTo(1.0628, 3);
   });
 
-  it('applies the minimum radius to tiny bodies', () => {
-    expect(displayRadiusFor('mercury', 1)).toBe(MIN_DISPLAY_RADIUS);
+  it('keeps the scene frame convention for offsets', () => {
+    const [x, y, z] = scaleOffset(1, 2, 3, 10);
+    expect(x).toBeCloseTo(10, 12);
+    expect(y).toBeCloseTo(30, 12);
+    expect(z).toBeCloseTo(-20, 12);
   });
 });
 
+describe('minimum on-screen size', () => {
+  const fov = (45 * Math.PI) / 180;
+
+  it('measures a pixel from the camera distance and field of view', () => {
+    // At distance d a 45-degree view is 2 d tan(22.5 deg) = 0.828 d tall.
+    expect(unitsPerPixelAt(100, fov, 828.4)).toBeCloseTo(0.1, 4);
+    expect(unitsPerPixelAt(0, fov, 800)).toBe(0);
+    expect(unitsPerPixelAt(100, fov, 0)).toBe(0);
+  });
+
+  it('draws a body at its true size once it is resolvable', () => {
+    // Earth from 0.05 units on an 850 px viewport is about 44 px in radius: no floor applies.
+    const earth = trueRadiusUnits(RADIUS.earth);
+    const upp = unitsPerPixelAt(0.05, fov, 850);
+    expect(drawnRadiusUnits(earth, upp, MIN_PIXEL_RADIUS.earth)).toBe(earth);
+  });
+
+  it('holds a distant body at the minimum pixel radius instead of letting it vanish', () => {
+    // Earth from the 320-unit inner-system camera is 0.01 px across at true size.
+    const earth = trueRadiusUnits(RADIUS.earth);
+    const upp = unitsPerPixelAt(320, fov, 850);
+    const drawn = drawnRadiusUnits(earth, upp, MIN_PIXEL_RADIUS.earth);
+    expect(drawn / upp).toBeCloseTo(MIN_PIXEL_RADIUS.earth, 9);
+    expect(drawn).toBeGreaterThan(earth);
+  });
+
+  it('never draws a body smaller than it really is', () => {
+    for (const id of BODY_IDS) {
+      for (const upp of [0, 1e-6, 1e-3, 1]) {
+        const t = trueRadiusUnits(RADIUS[id]);
+        expect(drawnRadiusUnits(t, upp, MIN_PIXEL_RADIUS[id])).toBeGreaterThanOrEqual(t);
+      }
+    }
+  });
+
+  it('ranks the markers like the bodies: Sun, giants, then rocky planets, then the Moon', () => {
+    const px = MIN_PIXEL_RADIUS;
+    expect(px.sun).toBeGreaterThan(px.jupiter);
+    expect(px.jupiter).toBeGreaterThan(px.earth);
+    expect(px.earth).toBeGreaterThan(px.mercury);
+    expect(px.mercury).toBeGreaterThan(px.moon);
+  });
+});
+
+describe('satellite resolvability', () => {
+  it('hides a satellite whose marker would overlap its parent', () => {
+    // Inner-system view: the Moon is a fraction of a pixel from Earth.
+    expect(satelliteResolvable(0.8, 3.8, 2.4)).toBe(false);
+  });
+
+  it('shows it once there is a visible gap between the two discs', () => {
+    expect(satelliteResolvable(9.2, 3.8, 2.4)).toBe(true);
+    expect(satelliteResolvable(9.1, 3.8, 2.4)).toBe(false);
+  });
+
+  it('shows the Moon in the Earth-Moon pair view', () => {
+    // The pair camera stands 1.7x the separation away, so the separation spans about 70% of
+    // the viewport height: hundreds of pixels against discs of a few.
+    const separation = 3.844e8 * UNITS_PER_M;
+    const upp = unitsPerPixelAt(separation * 1.7, (45 * Math.PI) / 180, 850);
+    const earthPx = trueRadiusUnits(RADIUS.earth) / upp;
+    const moonPx = Math.max(MIN_PIXEL_RADIUS.moon, trueRadiusUnits(RADIUS.moon) / upp);
+    expect(satelliteResolvable(separation / upp, earthPx, moonPx)).toBe(true);
+  });
+});
+
+describe('local scale', () => {
+  it('is the true scale under the linear layout, at any distance', () => {
+    expect(localUnitsPerMetre(AU_M, 'linear')).toBe(UNITS_PER_M);
+    expect(localUnitsPerMetre(30 * AU_M, 'linear')).toBe(UNITS_PER_M);
+  });
+
+  it('is the slope of the compressed map at that distance', () => {
+    const r = AU_M;
+    const h = 1e-4 * AU_M;
+    const slope = (radialUnits(r + h, 'compressed') - radialUnits(r - h, 'compressed')) / (2 * h);
+    expect(localUnitsPerMetre(r, 'compressed') / slope).toBeCloseTo(1, 6);
+  });
+
+  it('shrinks with distance under compression, so the outer planets are drawn smaller', () => {
+    expect(localUnitsPerMetre(30 * AU_M, 'compressed')).toBeLessThan(
+      localUnitsPerMetre(AU_M, 'compressed'),
+    );
+  });
+});
 describe('radial mapping', () => {
   it('is identity-equivalent to linear at the linear conversion factor', () => {
     const r = 2.5 * AU_M;
@@ -171,54 +252,5 @@ describe('radial mapping', () => {
     }
     const first = radii[0]!;
     for (const r of radii) expect(r).toBeCloseTo(first, 9);
-  });
-});
-
-describe('body-relative scaling', () => {
-  it('exaggerates offsets exactly as much as the body itself is drawn', () => {
-    const s = bodyRelativeScale('earth', BODIES.earth.radius);
-    // Earth is drawn at 1.2 units for a 6371 km radius, so one true radius becomes 1.2 units.
-    expect(s * BODIES.earth.radius).toBeCloseTo(displayRadiusFor('earth', BODIES.earth.radius), 9);
-    // The exaggeration over the plain linear scale is the drawn radius over the true one.
-    expect(s).toBeCloseTo(displayRadiusFor('earth', BODIES.earth.radius) / BODIES.earth.radius, 9);
-    expect(s / UNITS_PER_M).toBeGreaterThan(200);
-  });
-
-  it('draws a satellite outside its parent, never inside it', () => {
-    // The bug this guards: at the linear scale the Moon's true offset is 0.257 scene units
-    // against an Earth drawn at radius 1.2, so a heliocentric placement puts the Moon inside
-    // the planet. The parent-relative placement must clear the sum of both drawn radii.
-    const earthRadius = displayRadiusFor('earth', RADIUS.earth);
-    const moonRadius = displayRadiusFor('moon', RADIUS.moon);
-    const moonOffset = parentRelativeOffset('earth', RADIUS.earth, 3.844e8);
-    expect(moonOffset).toBeGreaterThan(earthRadius + moonRadius);
-    // And it agrees with the scale trajectories are drawn at, so a craft flying to the Moon
-    // and the Moon itself share one frame.
-    const trajectoryScale = bodyRelativeScale('earth', RADIUS.earth);
-    expect(moonOffset).toBeCloseTo(3.844e8 * trajectoryScale, 6);
-  });
-
-  it('puts a 400 km orbit just outside the drawn surface, not inside it', () => {
-    const s = bodyRelativeScale('earth', BODIES.earth.radius);
-    const drawnRadius = displayRadiusFor('earth', BODIES.earth.radius);
-    const orbitRadius = (BODIES.earth.radius + 400e3) * s;
-    expect(orbitRadius).toBeGreaterThan(drawnRadius);
-    // Above the surface, but only slightly: 400 km on a 6371 km body is 6%.
-    expect(orbitRadius).toBeLessThan(drawnRadius * 1.1);
-  });
-
-  it('preserves ratios of distance from the same body', () => {
-    const s = bodyRelativeScale('earth', BODIES.earth.radius);
-    const leo = (BODIES.earth.radius + 400e3) * s;
-    const geo = 42164e3 * s;
-    // GEO is 42164/6771 = 6.2 LEO radii out, and must stay so on screen.
-    expect(geo / leo).toBeCloseTo(42164e3 / (BODIES.earth.radius + 400e3), 9);
-  });
-
-  it('keeps the scene frame convention for offsets', () => {
-    const [x, y, z] = scaleOffset(1, 2, 3, 10);
-    expect(x).toBeCloseTo(10, 12);
-    expect(y).toBeCloseTo(30, 12);
-    expect(z).toBeCloseTo(-20, 12);
   });
 });
