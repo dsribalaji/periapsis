@@ -68,6 +68,7 @@ clock on screen advances" is an e2e test. The overlap is deliberately small.
 | Two axis ticks, one label         | A narrow range rounds two ticks to the same string, so `key={label}` duplicates                            | Key by position, not by text                                          |
 | Wall-clock assertions on a laptop | The CPU idles at 1.5 GHz of 2.2 GHz on battery, so a timing budget fails for reasons unrelated to the code | Compare measurements taken in the same clock state, or record both    |
 | A wide numeric tolerance          | ±1,000 km around an altitude passed a readout that was wrong by 343,000 km                                 | Assert a readout against another readout, not against a constant      |
+| `expect()` per pixel              | A 259,200-pixel opacity loop took 1.8 s alone and hit the 5 s timeout under 24 parallel workers            | Sweep with a stride, and assert the two ends explicitly               |
 
 A fourth rule, learned the hard way in M5.3: **a test that hovers must also prove the hover
 survives.** Replacing a short hint with a tall list reflows the sidebar, which moves the plot
@@ -94,19 +95,40 @@ the plan. Two things fixed it: the live radius is now asserted against the panel
 does not move relative to its body, which must draw as a point. A tolerance has to be derived from
 what the system can actually do, not picked to be safely round.
 
+A seventh, from M6.2: **when two readouts disagree, derive the disagreement before you widen the
+bound.** The ground-track map's altitude and the mission panel's altitude are the same quantity —
+the true radius of one craft — so the first instinct was that they must be equal, and the second
+was that the tiny gap was float32 storage. It was neither. The panel's radius comes from the drawn
+frame, whose samples are joined by straight lines, so between samples it reports the chord radius
+and the map reports the arc radius; the gap is the chord sagitta, `r(1 − cos(θ/2))`, predicted
+3,526 m and measured 3,642 m at 550 km. Writing the derivation down took one line of arithmetic and
+turned a "why doesn't this match" into a bounded, explanatory number — and, just as important, it
+made the _other_ possible cause (a frame defect) refutable by four orders of magnitude. A test that
+had simply grown a 5 km tolerance would have accepted the D-032 class of bug without noticing.
+
 ## Coverage
 
 `vitest` reports coverage over `src/core`, `src/sim` and `src/scenarios` only. `src/render` and
 `src/ui` are covered by e2e instead: a line-coverage number for a WebGL scene measures that
 lines ran, not that anything was drawn.
 
-The exception is `src/ui/porkchopView.ts` and `src/ui/transferView.ts`, which are pure and unit
-tested even though they live in `src/ui`. The rule is not "which folder" but "can it be tested
-without a browser": the colour ramp, the image buffer and its orientation, the pointer-to-cell
-mapping, the axis ticks, the hover readout, the cell-to-node conversion and the horizon decision
-are all arithmetic, so they are asserted directly and the canvas keeps only the `putImageData`
-call. That canvas is 2D, so its e2e test reads it back with `getImageData` directly — the
-screenshot-decode path below is only needed for the WebGL view.
+The exception is `src/ui/porkchopView.ts`, `src/ui/transferView.ts` and
+`src/ui/groundTrackView.ts`, which are pure and unit tested even though they live in `src/ui`. The
+rule is not "which folder" but "can it be tested without a browser": the colour ramp, the image
+buffers and their orientation, the pointer-to-cell mapping, the axis ticks, the hover readout, the
+cell-to-node conversion, the horizon decision, the equirectangular projection, the antimeridian and
+gap splits, the marker interpolation and the track summary are all arithmetic, so they are asserted
+directly and the canvases keep only the `putImageData` call. Both canvases are 2D, so their e2e
+tests read them back with `getImageData` directly — the screenshot-decode path below is only needed
+for the WebGL view.
+
+The ground-track tests deliberately split into two layers, because the failure modes are different.
+`tests/groundTrackView.test.ts` builds **synthetic** tracks for the projection and split rules — a
+live wire of latitudes and longitudes with the crossing flags already set — so a failure means the
+renderer is wrong rather than the ephemeris having moved. Two tests then run the same rules against
+the **real** frame chain (`leo-raise` must produce crossings; a craft at the Earth's centre must
+break the track), so the synthetic input cannot quietly drift away from what the core module
+actually emits.
 
 The bundled scenarios are covered from two directions, and both are needed. `scenario.test.ts`
 validates every entry structurally, so a malformed scenario cannot ship. It also re-derives the

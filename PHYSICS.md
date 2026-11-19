@@ -990,3 +990,70 @@ gap — the track genuinely breaks there.
 The 1e-7 and 1e-6 bounds above are the only "loose" ones and both exist to let two _different_
 formulations of the sidereal rate be compared. They are not tolerances on the module's own
 arithmetic; the module's arithmetic is checked at 1e-12 by the identity tests.
+
+### 13.5 Drawing it: the panel, the projection, and what the map costs
+
+`src/ui/groundTrackView.ts` (pure) and `src/ui/GroundTrackPanel.tsx` (canvas) draw the track from
+M6.2. The projection is equirectangular, `x = (λ + π)/2π`, `y = (π/2 − φ)/π`, on a 2:1 rectangle,
+with a 30° graticule and no coastlines (D-004).
+
+**What the projection costs, stated rather than corrected.**
+
+- No coastlines. A dot over Kansas is over Kansas only if the reader knows it. A coastline
+  dataset is a licensing and accuracy question with no physics content, so it is absent and the
+  panel says so in place.
+- East-west stretch of `1/cos φ`. At 53° that is 1.66, at 76° it is 4.1. This is the projection,
+  not an error, and it is why the same 1° of longitude is a different distance at different
+  latitudes.
+- Geocentric latitude (§13.2): up to 0.19°, about 21 km.
+
+**The ecliptic datum is visible on the map, and it is correct.** The physics frame is
+ecliptic-referenced (§10.4), so an orbit named "equatorial" in the scenario data is equatorial to
+the _ecliptic_. Measured on the bundled `gto-transfer`: the final circular 35,793 km orbit sweeps
+**±23.44° of latitude**, which is exactly `OBLIQUITY_J2000`, rather than sitting on the equator.
+Likewise `leo-raise` at a 53° ecliptic inclination reaches **76.44° = 53 + 23.44**. Neither is a
+projection bug: the map is right and the orbit's name is the approximation. This is the single
+most useful thing the panel reveals, and it is asserted in `tests/groundTrackView.test.ts` at 0.1°
+because a wrong obliquity sign or a skipped rotation would fail it loudly.
+
+**The line breaks in two places, both computed in the core module.**
+
+- At the antimeridian (`crossesAntimeridian`, D-031). Without the break the polyline runs from
+  `x ≈ 0.99` to `x ≈ 0.01` and draws a line the full width of the map, which reads as the craft
+  teleporting.
+- After a dropped undefined sample (`startsAfterGap`, D-034). The craft sat at the Earth's centre,
+  where no latitude exists, and the samples either side are not adjacent. The renderer is told
+  where the hole is rather than inferring it from sample spacing, which fails on a short track.
+
+**Two readouts of one craft differ by a chord sagitta (D-035).** The map's altitude comes from the
+nearest propagated sample; the mission panel's live altitude comes from the drawn frame, which
+interpolates straight lines between samples, so between samples it reports a chord radius
+systematically inside the arc:
+
+    s = r (1 − cos(θ/2)),   θ = arc length / r
+
+| Plan      | Step    | Arc    | θ (rad) | Predicted | Measured worst |
+| --------- | ------- | ------ | ------- | --------- | -------------- |
+| LEO raise | 59.18 s | 449 km | 0.0628  | 3,526 m   | 3,642 m        |
+
+0.05% of a 550 km altitude, invisible in the panel, and it shrinks with sample spacing rather than
+with a code change. It is recorded because it _looks_ like the D-032 frame defect — the same shape
+of "two readouts disagree" — and the numbers are what separate them: 3,642 m against 343,390 km.
+
+**Measured map content**, read back from the canvas with `getImageData` (720 × 360). Graticule
+counts differ slightly because the track is painted over it:
+
+| Scenario               | Track px | Graticule px | Samples | Lines | Longitude span |
+| ---------------------- | -------- | ------------ | ------- | ----- | -------------- |
+| `leo-raise`            | 1,883    | 6,741        | 197     | 3     | 670.5°         |
+| `gto-transfer`         | 602      | 6,779        | 1,755   | 2     | 129.2°         |
+| `earth-mars-departure` | 948      | 6,764        | 92      | 2     | 337.3°         |
+
+Two of those spans are worth reading as physics rather than as numbers:
+
+- `leo-raise` spans 670.5°, more than a full revolution, because a 3.2 h plan at 550 km laps the
+  Earth and the track overlaps itself.
+- `earth-mars-departure` spans 337.3° in a 90-minute park. That is 360° of inertial travel minus
+  the 22.5° the Earth rotates underneath in the same time — the ground track of one orbit is
+  always short of a full turn by the rotation rate times the period. It is still flagged as
+  partial coverage because the map needs a full 360° to close, and one pass does not.

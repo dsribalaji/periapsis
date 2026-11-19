@@ -713,3 +713,129 @@ test.describe('the GTO and Earth-Mars scenarios', () => {
     await expect(page.getByTestId('mission-aliased')).toBeVisible();
   });
 });
+
+test.describe('the ground-track panel', () => {
+  /**
+   * Pixels in the map canvas matching the mission colour (#ff9f1c).
+   *
+   * The map canvas is 2D, so `getImageData` reads it back directly — no screenshot decode, which
+   * is only needed for the WebGL view. Counted by colour rather than by brightness because the
+   * graticule and the background are both grey-blue, and only the track is orange.
+   */
+  const countTrackPixels = async (page: import('@playwright/test').Page): Promise<number> =>
+    page.evaluate(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>(
+        '[data-testid="ground-track-canvas"]',
+      );
+      if (!canvas) throw new Error('no ground-track canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('no 2d context');
+      const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        // Allow a pixel or two of slack: the drawn colour is exact, but a future antialias
+        // pass would shift it slightly and this test should not care.
+        if ((data[i] ?? 0) > 200 && (data[i + 1] ?? 0) > 120 && (data[i + 1] ?? 0) < 200) count++;
+      }
+      return count;
+    });
+
+  test('appears for an Earth mission and reports a sub-satellite point', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+
+    const panel = page.getByTestId('ground-track');
+    await panel.scrollIntoViewIfNeeded();
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId('ground-track-map')).toBeVisible();
+
+    // The panel is a readout of the same orbit the mission panel describes: the map's altitude
+    // and the mission panel's altitude are the same quantity to within one drawn segment.
+    await expect(page.getByTestId('ground-track-lat')).toHaveText(/^\d+\.\d°[NS]$/);
+    await expect(page.getByTestId('ground-track-lon')).toHaveText(/^\d+\.\d°[EW]$/);
+    await expect(page.getByTestId('ground-track-alt')).toHaveText('550.0 km');
+    await expect(page.getByTestId('ground-track-samples')).not.toHaveText('0');
+  });
+
+  test('paints the track into the map canvas', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await page.getByTestId('ground-track-map').scrollIntoViewIfNeeded();
+    await expect(page.getByTestId('ground-track-canvas')).toBeVisible();
+
+    const pixels = await countTrackPixels(page);
+    // A 3.2 h LEO plan laps the Earth, so the track is a long stripe across a 720x360 map.
+    // Measured in the hundreds of pixels at minimum; a few stray antialiased pixels cannot pass.
+    expect(pixels).toBeGreaterThan(500);
+  });
+
+  test('moves the marker and the readouts as the clock advances', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    const marker = page.getByTestId('ground-track-marker');
+    await expect(marker).toBeVisible();
+
+    const read = async (): Promise<{ left: number; top: number; lat: string; lon: string }> => {
+      const box = await marker.boundingBox();
+      const map = await page.getByTestId('ground-track-map').boundingBox();
+      if (!box || !map) throw new Error('no marker box');
+      return {
+        left: ((box.x - map.x) / map.width) * 100,
+        top: ((box.y - map.y) / map.height) * 100,
+        lat: (await page.getByTestId('ground-track-lat').textContent()) ?? '',
+        lon: (await page.getByTestId('ground-track-lon').textContent()) ?? '',
+      };
+    };
+
+    const before = await read();
+    // Inside the map, not off its edge: the projection clamps latitude and wraps longitude, so a
+    // marker outside 0..100% would mean the clamp or the wrap failed.
+    expect(before.left).toBeGreaterThanOrEqual(0);
+    expect(before.left).toBeLessThanOrEqual(100);
+    expect(before.top).toBeGreaterThanOrEqual(0);
+    expect(before.top).toBeLessThanOrEqual(100);
+
+    await page.getByRole('button', { name: '100', exact: true }).click();
+    await expect(page.getByTestId('ground-track-lat')).not.toHaveText(before.lat, {
+      timeout: 15_000,
+    });
+
+    const after = await read();
+    // The craft is moving at 7.6 km/s, so a minute of simulated time moves the sub-satellite
+    // point a visible distance. Asserting movement rather than a position keeps this robust to
+    // the exact wall-clock the test happens to catch.
+    const moved = Math.abs(after.left - before.left) + Math.abs(after.top - before.top);
+    expect(moved).toBeGreaterThan(0.5);
+  });
+
+  test('says where the track crosses the antimeridian', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    const caveat = page.getByTestId('ground-track-antimeridian');
+    await caveat.scrollIntoViewIfNeeded();
+    // The bundled LEO plan laps the Earth, so it wraps. Without the break the map would draw a
+    // line the full width of the world and read as the craft teleporting.
+    await expect(caveat).toBeVisible();
+  });
+
+  test('is absent for a scenario with no spacecraft', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('earth-moon');
+    // No mission means no plan means no track. The panel is inside the mission section, so it
+    // must not appear on its own for a system view.
+    await expect(page.getByTestId('ground-track')).toHaveCount(0);
+  });
+
+  test('shows a partial-coverage note for a park that has not yet lapped the Earth', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('earth-mars-departure');
+    const note = page.getByTestId('ground-track-partial');
+    await note.scrollIntoViewIfNeeded();
+    // A 300 km park over a 90-minute horizon covers a stripe, not a globe. The panel says so
+    // rather than leaving the reader to wonder why the map is mostly empty.
+    await expect(note).toBeVisible();
+    await expect(note).toContainText('revolutions of longitude');
+  });
+});

@@ -35,6 +35,7 @@ import {
   type MissionPlan,
   type MissionProgress,
 } from './missionView.js';
+import { GroundTrackPanel } from './GroundTrackPanel.js';
 import { MissionPanel } from './MissionPanel.js';
 import { PorkchopPanel } from './PorkchopPanel.js';
 import { departureAsymptote, type Porkchop } from '../core/transfer/porkchop.js';
@@ -446,6 +447,14 @@ export function App(): React.JSX.Element {
         </div>
 
         {plan && <MissionPanel plan={plan} progress={progress} testid="mission" />}
+
+        {plan?.groundTrack && (
+          <GroundTrackPanel
+            track={plan.groundTrack}
+            current={progress?.groundPoint ?? null}
+            testid="ground-track"
+          />
+        )}
 
         <PorkchopPanel
           epochUtc={scenario.epochUtc}

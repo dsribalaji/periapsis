@@ -132,6 +132,19 @@ are arithmetic that must be asserted without a browser. It sits above `src/sim` 
 `circularOrbitFrame` and the `Maneuver` type, and `core/transfer/departure.ts` sits below both
 because it needs nothing but vectors.
 
+`groundTrackView.ts` and `GroundTrackPanel.tsx` follow the same rule one layer down. The
+projection, the polyline splitting at the antimeridian and after a gap, the marker interpolation,
+the summary and the Bresenham-painted RGBA buffer are all pure and unit-tested; the panel owns the
+canvas, one `putImageData`, the DOM marker and the readouts. This is the third instance of the
+split, which is the point: a canvas is the one part of the app a unit test cannot reach, so nothing
+that could be wrong may live inside it. The map canvas is 2D, so its e2e test reads it back with
+`getImageData` directly rather than decoding a screenshot.
+
+The ground track's two line-break rules are computed in the core module, not here: the antimeridian
+flag sits next to the longitude wrap (D-031), and `startsAfterGap` sits next to the `continue` that
+drops an undefined sample (D-034). The renderer is told where its line breaks; it never infers a
+break from spacing, which would confuse a sparse track with a hole.
+
 The split between the two is where the _question_ changes. `departure.ts` answers "what burn
 leaves this orbit on that asymptote, and where on the orbit" — a physics question with a
 physics answer. `transferView.ts` answers "what node does that make, in this mission, on this

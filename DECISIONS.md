@@ -414,6 +414,41 @@ But a literal that nothing re-derives is a measurement that goes stale silently 
 physics changes, and the failure is a scenario that still loads and still draws, just with a burn
 that no longer reaches where it says. The GTO numbers are checkable against a closed form
 (`2 v sin(i/2)` for the plane change, vis-viva for the apogee speed), so the test recomputes both
-the prograde and normal components and also asserts the _saving_ — 1,151 m/s, bounded to
-1,000-1,300 — because that saving is the entire point of the scenario. A scenario whose lesson
+the prograde and normal components and also asserts the _saving_ - 1,151 m/s, bounded to
+1,000-1,300 - because that saving is the entire point of the scenario. A scenario whose lesson
 has quietly evaporated is worse than no scenario.
+
+## D-034 - The ground-track core records where a gap is, and the renderer is told
+
+**Choice:** `GroundTrackSample` carries `startsAfterGap`, set by `buildGroundTrack` on the first
+sample after one or more dropped undefined samples. `trackPolylines` and `groundPointAt` break on
+it.
+**Alternatives:** have the renderer infer a gap from an unusually large time step; join across the
+gap and draw a dashed line; drop the whole segment.
+**Why:** the renderer cannot know where a gap is. It sees a list of samples; the information that
+one of them was dropped lives only in the code that dropped it. The obvious workaround — compare
+consecutive time spans against the median and call anything over 1.5x a gap — is a heuristic that
+fails exactly when it matters: a two-sample track has no median at all, and a legitimately sparse
+track (a high-altitude coast sampled every few hours) looks identical to a hole. This was found by
+a test, not by inspection: the synthetic two-point gap case could not be detected by spacing and
+passed through `trackPolylines` as one continuous line. Computing the flag next to the `continue`
+that drops the sample is the same principle as D-031 (compute the antimeridian break next to the
+wrap): the module that creates the discontinuity is the module that labels it.
+
+## D-035 - The map altitude and the panel altitude differ by one chord sagitta
+
+**Choice:** the ground-track panel's live altitude (from the nearest propagated sample) and the
+mission panel's live altitude (from the drawn, linearly interpolated geometry) are allowed to
+differ by up to one chord sagitta, and the test asserts that bound rather than equality.
+**Alternatives:** derive both from the same source so they agree exactly; loosen the test to a
+round number.
+**Why:** they genuinely measure different things. The map reports the true radius at a sample
+instant; the mission panel's radius comes from the drawn frame, whose vertices are connected by
+straight lines, so between samples it reports the chord radius, which is systematically inside the
+arc. The gap is `s = r(1 - cos(θ/2))` with `θ = arc/r`. Measured on the bundled LEO plan: 59.18 s
+per sample, 449 km of arc, θ = 0.0628 rad, predicted 3,526 m, observed worst case 3,642 m at
+550 km — 0.05%. Making them equal would mean either degrading the map to chord geometry or
+drawing the 3D path as a dense arc, and both are worse than a stated 3.6 km. The reason it is
+worth a decision rather than a comment is that the difference _looks_ like the D-032 class of
+frame bug, and the test has to be able to tell them apart: D-032 was 343,390 km, this is 3,642 m,
+and it shrinks with sample spacing rather than with a code change.

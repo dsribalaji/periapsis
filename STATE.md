@@ -21,10 +21,10 @@ Last full run: `npm run verify` (2026-11-19) and `npx playwright test`.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 561 tests / 23 files                               |
-| Build (`vite build`)        | PASS, 842 kB JS (230 kB gzip)                            |
+| Unit tests (`vitest run`)   | PASS, 595 tests / 24 files                               |
+| Build (`vite build`)        | PASS, 851.82 kB JS (232.47 kB gzip)                      |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
-| E2E (`npx playwright test`) | PASS, 35 tests against the real app in headless Chromium |
+| E2E (`npx playwright test`) | PASS, 41 tests against the real app in headless Chromium |
 
 All six were run, not inferred. The e2e suite starts its own dev server and drives the real
 page: it asserts React mounts, a WebGL canvas is created and sized, the clock advances while
@@ -64,6 +64,15 @@ drew the bundled 550 km orbit as a 343,390 km streak, so the panel read "Radius 
 ±1,000 km. Fixed in D-032 / PHYSICS.md §10.2, with regression tests at both the unit and e2e
 level that compare one readout against another instead of against a constant.
 
+The ground-track panel is covered by six more e2e tests: it appears for an Earth mission and
+reports a sub-satellite point whose altitude matches the mission panel, the map canvas is read back
+with `getImageData` and must contain over 500 track-coloured pixels (measured 1,883 for
+`leo-raise`), the marker stays inside the map and both it and the lat/lon readouts change as the
+clock runs, the antimeridian caveat appears for a track that laps the Earth, the panel is absent
+for a scenario with no spacecraft, and the partial-coverage note appears for a 90-minute park whose
+337.3° span does not close the map. The panel's projection and its two line-break rules are
+asserted at the unit level (34 tests), where they are arithmetic rather than pixels.
+
 Note on the browser: the paired interactive browser extension was not connected, so
 verification ran through Playwright's Chromium with software GL
 (`--use-gl=swiftshader`). That is a real browser executing the real bundle, but it is not
@@ -96,7 +105,8 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/departure.test.ts`       | 31    | closed-form departure, Oberth crossover, phase search, plane cost  |
 | `tests/transferView.test.ts`    | 42    | cell -> node, timing shift, warnings, horizon extension            |
 | `tests/groundTrack.test.ts`     | 20    | obliquity, GMST rotation, geocentric lat/lon, antimeridian         |
-| `e2e/shell.spec.ts`             | 35    | boot, WebGL, clock, picking, drag, zoom, mission, plot, departure  |
+| `tests/groundTrackView.test.ts` | 34    | projection, antimeridian split, gaps, marker, image, datum check   |
+| `e2e/shell.spec.ts`             | 41    | boot, WebGL, clock, picking, drag, zoom, mission, plot, map        |
 
 ## Module inventory
 
@@ -141,16 +151,18 @@ the same as a check on a GPU-backed desktop browser.
 
 `src/ui`:
 
-| Module              | Status                                                    |
-| ------------------- | --------------------------------------------------------- |
-| `App.tsx`           | complete: viewport, scenario picker, time bar, inspector  |
-| `bodyDisplay.ts`    | complete: names, colours, ordering                        |
-| `missionView.ts`    | complete, tested: plan/progress split, sampling adequacy  |
-| `MissionPanel.tsx`  | complete: readouts, budget, node list, aliasing caveat    |
-| `porkchopView.ts`   | complete, tested: ramp, image, pointer, ticks, readout    |
-| `PorkchopPanel.tsx` | complete: canvas heat-map, hover, click-select, departure |
-| `transferView.ts`   | complete, tested: cell -> node, timing, warnings, horizon |
-| `styles.css`        | complete: dark theme, node list, plot, reduced motion     |
+| Module                 | Status                                                     |
+| ---------------------- | ---------------------------------------------------------- |
+| `App.tsx`              | complete: viewport, scenario picker, time bar, inspector   |
+| `bodyDisplay.ts`       | complete: names, colours, ordering                         |
+| `missionView.ts`       | complete, tested: plan/progress split, sampling adequacy   |
+| `MissionPanel.tsx`     | complete: readouts, budget, node list, aliasing caveat     |
+| `groundTrackView.ts`   | complete, tested: projection, splits, marker, image buffer |
+| `GroundTrackPanel.tsx` | complete: map canvas, marker, readouts, caveats            |
+| `porkchopView.ts`      | complete, tested: ramp, image, pointer, ticks, readout     |
+| `PorkchopPanel.tsx`    | complete: canvas heat-map, hover, click-select, departure  |
+| `transferView.ts`      | complete, tested: cell -> node, timing, warnings, horizon  |
+| `styles.css`           | complete: dark theme, node list, plot, reduced motion      |
 
 `src/scenarios` — schema, validation and the bundled catalogue:
 
@@ -166,9 +178,8 @@ cannot view images, so a screenshot is only ever "measured", never "looked at").
 
 Not yet written: the maneuver-node _editor_ (nodes are shown and marked applied, and one can now
 be created from a porkchop cell, but there is no edit/delete control yet — `leo-raise` carries its
-node as scenario data), arrival/capture burns, the ground-track _panel_ (the ground-track
-computation itself landed in M6.1 — `src/core/groundTrack/`, 20 tests — but nothing draws it yet),
-scenario persistence and file import/export.
+node as scenario data), arrival/capture burns, the free-return scenario (M6.3), scenario
+persistence and file import/export.
 
 ## Milestones
 
@@ -180,7 +191,7 @@ scenario persistence and file import/export.
 | M3 3D shell               | done (M3.1-M3.6)                                                 |
 | M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
 | M5 mission planning       | done (M5.1–M5.5)                                                 |
-| M6 ground track + Moon    | M6.1 done (physics); M6.2 panel not started                      |
+| M6 ground track + Moon    | M6.1 and M6.2 done (physics + panel); M6.3 outstanding           |
 | M7 scenarios + polish     | not started                                                      |
 | M8 hardening              | not started                                                      |
 
@@ -216,7 +227,10 @@ scenario persistence and file import/export.
   orbit is correct _about that body_ but not to scale against the heliocentric layout: the Moon
   is drawn at 72 units from Earth-drawn-space while its scene position is ~0.03 units away.
 - Inclinations are ecliptic-referenced, not equatorial (PHYSICS.md §10.4), so a quoted 53° is
-  53° from the ecliptic. Corrected properly only when the ground track arrives (M6).
+  53° from the ecliptic. The ground track is where the equatorial answer exists (§13.5), which is
+  why a 53° orbit reaches 76.44° of latitude on the map: 53 + 23.44. That is the datum, not a
+  defect, but it means the scenario's stated inclination and the map's latitude range will never
+  agree and both are correct.
 - Maneuver nodes are displayed and marked applied as the clock passes them, and one can now be
   created from a porkchop cell, but there is no edit or delete control yet; other nodes are
   scenario data. M4.2's UI half stays open in PLAN.md.
@@ -255,3 +269,14 @@ scenario persistence and file import/export.
   grid sizes, because the CPU runs at 1.5 GHz of a 2.2 GHz maximum on battery. Both measurements
   are in PHYSICS.md §11.1 rather than one replacing the other: a wall-clock figure from a laptop
   is only comparable to itself at the same clock state.
+- **The ground track is Earth-only.** The projection's obliquity and sidereal rotation are Earth's,
+  so a mission about any other body reports no track rather than projecting it onto a world map
+  that is not its world (D-004, PHYSICS.md §13.5). There is also no coastline layer: the map is a
+  30° graticule, and a dot over Kansas is over Kansas only if the reader knows that.
+- **The ground-track map and the mission panel report slightly different altitudes**, by up to one
+  chord sagitta of the drawn path: 3,642 m measured against 3,526 m predicted on the bundled LEO
+  plan, 0.05% of a 550 km altitude. The map is the true radius at a sample; the panel's is the
+  chord radius of the drawn segment. Derived and bounded in D-035 / PHYSICS.md §13.5, not tuned.
+- **The ground track is drawn from the plan, not the clock**, so it shows the whole horizon's path
+  at once with a marker for the current point. It does not accumulate: switching scenarios replaces
+  it, and it never draws where the craft has actually been beyond the flown prefix in the 3D view.

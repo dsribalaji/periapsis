@@ -120,7 +120,19 @@ delete one. Those items stay unticked rather than being checked off on the stren
       renderer never draws a line across the map. Mutation-tested: removing the obliquity
       rotation fails 8/20, freezing the epoch-relative origin fails 7/20. PHYSICS.md §13.
       The panel that draws it is M6.2, which is what keeps this box unticked.
-- [ ] M6.2 2D equirectangular ground-track panel with graticule
+- [x] M6.2 2D equirectangular ground-track panel with graticule
+      — `ui/groundTrackView.ts` (projection, polyline splitting, marker interpolation, summary,
+      Bresenham image buffer) and `ui/GroundTrackPanel.tsx` (canvas, marker, readouts, caveats),
+      34 unit tests, 6 e2e tests. Measured on the bundled plans: `leo-raise` 197 samples / 3
+      polylines / 1,883 track pixels / 670.5° span; `gto-transfer` 1,755 samples / 602 pixels;
+      `earth-mars-departure` 92 samples / 948 pixels / 337.3° (one 90-minute orbit minus the
+      Earth's 22.5° of rotation). The panel revealed that the GTO's "geostationary" orbit sweeps
+      ±23.44° of latitude — exactly `OBLIQUITY_J2000` — because inclinations are ecliptic-
+      referenced (PHYSICS.md §13.5); that is the datum made visible, not a defect. Two design
+      points came out of the tests: the core module now records `startsAfterGap` (D-034) rather
+      than letting the renderer infer gaps from sample spacing, and the map/panel altitude gap is
+      bounded by one chord sagitta, 3,642 m measured against 3,526 m predicted (D-035).
+      PHYSICS.md §13.5.
 - [ ] M6.3 Free-return scenario
 
 ## M7 — Scenarios and polish

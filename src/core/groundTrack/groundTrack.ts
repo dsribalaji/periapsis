@@ -6,10 +6,11 @@
  *
  * 1. **Heliocentric → Earth-relative.** The trajectory is stored heliocentrically. A ground
  *    track needs the vector from the Earth's centre, and it must be taken against the Earth's
- *    position at *that sample's own time*, not at the epoch. The epoch-relative version is a
- *    documented drawing convention (PHYSICS.md §10.2, D-014) that is right for a picture of an
- *    orbit and completely wrong for a sub-satellite point: the Earth moves about 30 km/s, so
- *    over one 96-minute revolution an epoch-fixed frame drifts some 2.8 Earth radii.
+ *    position at *that sample's own time*, not at the epoch. Until M5.5 the epoch-relative form
+ *    was a documented drawing convention (PHYSICS.md §10.2, D-014), but D-032 found that it
+ *    counts the body's own displacement twice and corrected the 3D view to subtract per sample
+ *    too. It is wrong here by a wide margin either way: the Earth moves about 30 km/s, so over
+ *    one 96-minute revolution an epoch-fixed frame drifts about 27 Earth radii.
  *
  * 2. **Ecliptic → equatorial.** **This project's physics frame is ecliptic-referenced**:
  *    +z is the ecliptic north pole, and PHYSICS.md §10.4 says so explicitly. Latitude and
@@ -117,6 +118,17 @@ export interface GroundTrackSample {
    * it from two longitudes it might not even have. Always false for the first sample.
    */
   readonly crossesAntimeridian: boolean;
+  /**
+   * True when one or more undefined samples were dropped immediately before this one.
+   *
+   * The craft sat at the Earth's centre, where latitude and longitude do not exist, so this
+   * sample is not continuous with the previous one and a renderer must break the line. Recorded
+   * here because this function is the only place that knows *where* the gap is: a consumer
+   * could try to infer it from an unusually large time step, but that heuristic fails on a
+   * short track and would confuse a sparse-but-continuous one. Always false for the first
+   * sample.
+   */
+  readonly startsAfterGap: boolean;
 }
 
 /** A heliocentric position at a time, in the shape `propagateTrajectory` produces. */
@@ -166,6 +178,7 @@ export function buildGroundTrack(
   let maxAltitudeM: number | null = null;
 
   let previousLon: number | null = null;
+  let gapBefore = false;
 
   for (const point of points) {
     if (!Number.isFinite(point.timeSeconds)) {
@@ -177,6 +190,7 @@ export function buildGroundTrack(
       undefinedPoints++;
       // The track genuinely breaks here: a renderer must not join across it.
       previousLon = null;
+      gapBefore = true;
       continue;
     }
 
@@ -196,7 +210,9 @@ export function buildGroundTrack(
       lonRad: fixed.lonRad,
       altitudeM,
       crossesAntimeridian,
+      startsAfterGap: gapBefore,
     });
+    gapBefore = false;
   }
 
   return {

@@ -19,6 +19,7 @@ import type { BodyId } from '../core/ephemeris/solarSystem.js';
 import { BODIES } from '../core/ephemeris/solarSystem.js';
 import { SECONDS_PER_DAY } from '../core/constants.js';
 import { jdFromIsoUtc, jdTtFromJdUtc } from '../core/time/time.js';
+import { buildGroundTrack, type GroundTrack } from '../core/groundTrack/groundTrack.js';
 import { craftFromSpec, circularPeriod, circularSpeed, type CraftSpec } from '../sim/craft.js';
 import { totalDeltaV } from '../sim/maneuver.js';
 import {
@@ -34,6 +35,7 @@ import {
   toLocalFrame,
   type LocalFrameResult,
 } from '../render/trajectoryLines.js';
+import { groundPointAt, type GroundPoint } from './groundTrackView.js';
 
 export interface MissionNodeView {
   readonly id: string;
@@ -81,6 +83,13 @@ export interface MissionPlan {
   readonly coastAliased: boolean;
   /** Geometry to draw, body-centred scene units. */
   readonly frame: LocalFrameResult;
+  /**
+   * Sub-satellite track, for the ground-track panel. Null when the central body is not Earth:
+   * the ground track's obliquity and sidereal rotation are Earth's, so a lunar or heliocentric
+   * mission has no latitude and longitude in this model, and saying so is better than
+   * projecting it onto a world map that is not its world.
+   */
+  readonly groundTrack: GroundTrack | null;
 }
 
 /** The part of a mission that changes as the clock advances. */
@@ -97,6 +106,11 @@ export interface MissionProgress {
   readonly radius: number | null;
   /** Altitude above the body surface now, metres. */
   readonly altitude: number | null;
+  /**
+   * Sub-satellite point now, for the ground-track marker. Null when the mission has no ground
+   * track (non-Earth central body) or the craft is outside the track's span.
+   */
+  readonly groundPoint: GroundPoint | null;
 }
 
 /**
@@ -142,6 +156,17 @@ export function buildMissionPlan(spec: CraftSpec, epochUtc: string): MissionPlan
   // An orbit drawn with fewer than eight points per revolution is not an orbit on screen.
   const coastAliased = density > ALIASED_PERIOD_FRACTION;
 
+  // The ground track is built from the same propagated samples the 3D path is drawn from, so
+  // the map and the picture cannot disagree about where the craft went. Earth only: the
+  // projection's obliquity and sidereal rotation are Earth's (PHYSICS.md §13).
+  const groundTrack =
+    spec.centralBody === 'earth'
+      ? buildGroundTrack(
+          trajectory.points.map((p) => ({ r: p.r, timeSeconds: p.timeSeconds })),
+          { epochJdUtc: jdFromIsoUtc(epochUtc) },
+        )
+      : null;
+
   return {
     craftId: spec.id,
     craftName: spec.name,
@@ -167,6 +192,7 @@ export function buildMissionPlan(spec: CraftSpec, epochUtc: string): MissionPlan
     periodFractionPerSample: density,
     coastAliased,
     frame,
+    groundTrack,
   };
 }
 
@@ -197,6 +223,9 @@ export function missionProgress(plan: MissionPlan, simSeconds: number): MissionP
     appliedNodeIds: applied.map((n) => n.id),
     radius,
     altitude: radius !== null ? radius - plan.bodyRadius : null,
+    // Interpolated from the same samples the map draws through, so the marker cannot sit off
+    // its own track (see `groundTrackView.ts`).
+    groundPoint: plan.groundTrack ? groundPointAt(plan.groundTrack, simSeconds) : null,
   };
 }
 
