@@ -565,6 +565,42 @@ half-loads is worse than one that refuses with both version numbers in the messa
 message names both, because "your file is from a newer build" without saying which build is not
 something a user can act on.
 
+## D-040 - Performance is measured by two scripts, one of which must be a browser
+
+**Choice:** `scripts/benchmark.mjs` (`npm run bench`) times the pure work by loading the shipped
+modules through Vite's `runnerImport`; `scripts/benchmark-frames.mjs` (`npm run bench:frames`)
+drives the real app in headless Chromium for frame cadence, long tasks and scenario-switch latency.
+Neither asserts anything or fails a build. Figures and the machine they came from are in
+PERFORMANCE.md.
+**Alternatives:** a Vitest benchmark with thresholds (fails on a slow CI machine for reasons that
+have nothing to do with the code); eyeballing the app (not a number, cannot be compared across
+changes); measuring only in Node (cannot answer whether the app holds a frame rate, which is the
+only performance question a user can see).
+**Why:** there are two different questions and they need two different tools. "How long does
+`buildMissionPlan` take" is a function call and belongs in Node. "Does the app hold 60 fps" depends
+on the renderer, the compositor and the pixel count, and no Node script can answer it - the
+browser-only script exists because the first version of this milestone would otherwise have
+claimed a frame rate from CPU timings alone.
+
+No thresholds, deliberately. A performance assertion in CI is a flaky test waiting to happen on
+shared hardware, and the thing it would protect against (a regression) is caught by reading two
+numbers before and after a change. What the scripts must be is _repeatable_, which is why the docs
+quote ranges across runs: this CPU throttles, `leo-raise` measured anywhere from 8.5 to 50 ms
+across five runs of the same code, and a single median printed to two decimal places would imply a
+precision that does not exist.
+
+The measurement that earned its keep was the viewport experiment. Most scenarios sat at 30 fps,
+which looks like a JavaScript problem; halving the canvas to 320x200 put every one of them at 60
+fps with the long-task count still at zero, which proves the main thread was never the bottleneck.
+Without that second measurement the honest-looking conclusion would have been "the app is too slow"
+and the fix would have been to optimise code that costs under 1% of a frame.
+
+The lunar free return is recorded as a limitation rather than fixed. A one-second block on a
+deliberate action, for a propagation that genuinely has 4,001 samples because the flyby needs them,
+does not justify moving the physics core behind a worker or caching a built plan inside a scenario
+file. Both would trade a real property (purity, a file that is an input rather than an artefact)
+for latency on the least frequent interaction in the app.
+
 ## D-039 - Accessibility is done with real elements, and the clock is not an animation
 
 **Choice:** the interactive rows in the sidebar are native `button` elements inside a real `ul`,

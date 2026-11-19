@@ -193,6 +193,25 @@ warp, an import failure is an `alert`, and a reduced-motion context has zero tra
 while the clock still advances. Focus order, roles and announcements have no visual signature, so
 they are the one part of the UI that only an end-to-end test can check at all.
 
+## Performance is measured, not tested
+
+There is no performance assertion anywhere in this suite, and that is deliberate rather than an
+omission. A timing threshold in a test fails on a shared CI runner for reasons that have nothing to
+do with the change under review, and the usual response to that is to widen the threshold until it
+catches nothing - a test that has been made green rather than a measurement that has been made
+honest.
+
+Instead, `scripts/benchmark.mjs` and `scripts/benchmark-frames.mjs` print numbers and exit 0, and
+PERFORMANCE.md records what they said on a named machine. A performance regression is caught by
+running two commands and comparing, which is a minute of work on the occasions it matters, rather
+than by a test that runs on every commit and is right perhaps half the time.
+
+The second script exists because the first cannot answer the question that matters. Node timings
+say how long a function takes; they say nothing about whether the app holds a frame rate, which
+depends on the renderer and the pixel count. That distinction produced the milestone's actual
+finding - the frame rate was rasteriser-bound, not script-bound - which no amount of Node
+measurement would have revealed.
+
 The bundled scenarios are covered from two directions, and both are needed. `scenario.test.ts`
 validates every entry structurally, so a malformed scenario cannot ship. It also re-derives the
 hard-coded burns in `gto-transfer` and `earth-mars-departure` from `hohmannTransfer` and the

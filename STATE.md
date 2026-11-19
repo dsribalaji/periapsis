@@ -118,6 +118,16 @@ what had focus, so pressing Space on a newly-native body button selected the bod
 clock at the same time. Two tests now pin the behaviour in both directions: Space on a focused
 button presses only that button, and Space with nothing focused still pauses.
 
+Performance is measured rather than asserted, in `scripts/benchmark.mjs` and
+`scripts/benchmark-frames.mjs`, with the figures in PERFORMANCE.md. The first loads the real modules
+through Vite's `runnerImport`, so it times the code that ships; the second drives the app in
+headless Chromium, because frame rate is the one thing a Node script cannot answer. Neither is a
+test: both print numbers and exit 0, so a slow machine cannot fail a build. The result worth
+recording is that per-frame script cost is under 1% of a 60 Hz frame at every warp step, and the
+30 fps at 1280x800 is the software rasteriser rather than the app - the same scenarios hold 60 fps
+at 320x200 with no long tasks. The one cost a person feels is switching to the lunar free return,
+about a second of blocked main thread for a genuine 4,001-sample propagation.
+
 Note on the browser: the paired interactive browser extension was not connected, so
 verification ran through Playwright's Chromium with software GL
 (`--use-gl=swiftshader`). That is a real browser executing the real bundle, but it is not
@@ -244,7 +254,7 @@ replays a measured trajectory rather than searching for one).
 | M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
 | M5 mission planning       | done (M5.1–M5.5)                                                 |
 | M6 ground track + Moon    | done (M6.1 physics, M6.2 panel, M6.3 free return)                |
-| M7 scenarios + polish     | M7.1, M7.2 and M7.3 done; M7.4 open                              |
+| M7 scenarios + polish     | M7.1, M7.2, M7.3 and M7.4 done; M8 open                          |
 | M8 hardening              | not started                                                      |
 
 ## Known limitations carried forward
@@ -371,3 +381,13 @@ replays a measured trajectory rather than searching for one).
 - **The 3D view has no keyboard camera control beyond framing.** The global keys frame a body, zoom
   by a step and reset the view; there is no way to orbit with the keyboard, so a user who cannot
   drag cannot change the viewing angle.
+- **A scenario switch to the lunar free return blocks the main thread for about a second.** It is a
+  genuine 4,001-sample N-body propagation, it happens on a deliberate action rather than during
+  flight, and the result is cached for the scenario's lifetime - but the app freezes while it
+  runs, and there is no progress indicator or worker. Measured at 1,015-1,184 ms on an i5-10310U;
+  see PERFORMANCE.md for the alternatives considered and why each was rejected.
+- **The frame rate is software-rasteriser bound, not script bound.** Every scenario holds 60 fps at
+  320x200 and most settle at 30 at 1280x800, with zero long tasks, which means the JavaScript is
+  idle waiting on the rasteriser. This is a limit of the measured environment (headless Chromium
+  with swiftshader), not of the app's code, and it is expected to disappear on a real GPU - but
+  that expectation is unmeasured.

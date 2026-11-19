@@ -79,6 +79,16 @@ export default tseslint.config(
         fetch: 'readonly',
         document: 'readonly',
         createImageBitmap: 'readonly',
+        // `performance` and the DOM constructors below are used inside `page.evaluate`, which
+        // runs the code in the browser, and by the benchmark's own Node timing.
+        performance: 'readonly',
+        ImageData: 'readonly',
+        HTMLSelectElement: 'readonly',
+        Event: 'readonly',
+        PerformanceObserver: 'readonly',
+        requestAnimationFrame: 'readonly',
+        localStorage: 'readonly',
+        setTimeout: 'readonly',
       },
     },
   },

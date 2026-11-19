@@ -168,7 +168,7 @@ delete one. Those items stay unticked rather than being checked off on the stren
       `tabIndex={-1}` so the browser really focuses it rather than only moving the sequential
       focus point). `role="img"` on the 3D viewport and on both canvases, each with a label that
       describes what is drawn. The body list became `ul > li > button` instead of `div
-    role="button"` with a keydown handler, so Enter, Space, focus order and the focus ring all
+  role="button"` with a keydown handler, so Enter, Space, focus order and the focus ring all
       come from the element. `aria-current` marks the body on screen. A polite live region reports
       pause state and warp but not the ticking time. Import failures are `role="alert"`. Every
       filtered input's accessible name now starts with its visible label text. `--text-faint`
@@ -177,7 +177,16 @@ delete one. Those items stay unticked rather than being checked off on the stren
       not affected. Fixed a real keyboard collision found during this pass: the global Space
       shortcut also fired when a button had focus, so pressing Space on a body row both selected
       it and paused the clock. 9 new e2e tests. D-039.
-- [ ] M7.4 Performance measurement with recorded numbers
+- [x] M7.4 Performance measurement with recorded numbers - `scripts/benchmark.mjs` (`npm run bench`) times the pure work by loading the real modules
+      through Vite's `runnerImport`, so no threshold and no copy of the code; and
+      `scripts/benchmark-frames.mjs` (`npm run bench:frames`) drives the real app in headless
+      Chromium for the two things only a browser can answer. Both print and exit 0; a slow machine
+      cannot fail a build. Figures are in PERFORMANCE.md with the machine named and ranges rather
+      than point values, because this CPU varies 2x run to run. The finding that matters: frame
+      rate is rasteriser-bound, not script-bound - every scenario holds 60 fps at 320x200 and 30
+      at 1280x800 with zero long tasks, so there is nothing to optimise in the app's own code. The
+      one real limitation is the lunar free-return switch at about a second, which is a genuine
+      4,001-sample N-body propagation on a deliberate action. D-040.
 
 ## M8 — v1.0.0 hardening
 

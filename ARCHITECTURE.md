@@ -185,6 +185,21 @@ code consumes it rather than deriving the same triad again — a second derivati
 normal ended up with the wrong sign (D-020), and the failure was a mirrored burn rather than a
 crash.
 
+### `scripts` — measurement, not tests
+
+Two files, both outside the app bundle and outside `verify`:
+
+- `benchmark.mjs` loads the shipped modules through Vite's `runnerImport` and times the pure work
+  (`buildMissionPlan`, `advance` + `positions`, `computePorkchop`, the ground-track image,
+  `missionProgress`). Loading through Vite is what keeps it honest: it measures the TypeScript the
+  app imports, with the project's own config, rather than a re-implementation that could drift.
+- `benchmark-frames.mjs` drives the real app in headless Chromium for the questions Node cannot
+  answer — frame cadence, long tasks, and the wall-clock cost of a scenario switch.
+
+Neither asserts anything (D-040). The measured numbers are in PERFORMANCE.md, and the reason the
+browser script exists at all is in TESTING.md: the per-frame JavaScript turned out to be under 1%
+of a frame, and only the viewport experiment showed that the 30 fps was the software rasteriser.
+
 ## Frame convention
 
 Physics uses a right-handed frame with +z toward the ecliptic north pole. Three.js has +y up.

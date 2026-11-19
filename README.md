@@ -73,6 +73,8 @@ To check it:
 ```
 npm run verify     # typecheck + lint + 664 unit tests + build
 npm run test:e2e   # 62 Playwright tests against the real app
+npm run bench      # performance numbers, in Node
+npm run bench:frames # frame rate and scenario-switch latency, in a browser
 ```
 
 ## Stack
@@ -86,17 +88,20 @@ convention, so the boundary cannot quietly erode (ADR-0001).
 
 ## Commands
 
-| Command             | What it does                               |
-| ------------------- | ------------------------------------------ |
-| `npm run dev`       | Vite dev server on http://localhost:5183   |
-| `npm test`          | unit tests (664)                           |
-| `npm run test:e2e`  | Playwright end-to-end tests (62)           |
-| `npm run typecheck` | `tsc` with strict settings                 |
-| `npm run lint`      | ESLint, including the core-purity boundary |
-| `npm run build`     | typecheck + production build               |
-| `npm run verify`    | typecheck + lint + tests + build           |
+| Command                | What it does                                |
+| ---------------------- | ------------------------------------------- |
+| `npm run dev`          | Vite dev server on http://localhost:5183    |
+| `npm test`             | unit tests (664)                            |
+| `npm run test:e2e`     | Playwright end-to-end tests (62)            |
+| `npm run typecheck`    | `tsc` with strict settings                  |
+| `npm run lint`         | ESLint, including the core-purity boundary  |
+| `npm run build`        | typecheck + production build                |
+| `npm run verify`       | typecheck + lint + tests + build            |
+| `npm run bench`        | performance numbers for the pure work       |
+| `npm run bench:frames` | frame rate and switch latency, in a browser |
 
-All of the above pass. See `STATE.md` for the numbers from the last real run.
+All of the above pass. See `STATE.md` for the numbers from the last real run, and
+`PERFORMANCE.md` for the timings and the machine they were measured on.
 
 ## Documentation
 
@@ -105,6 +110,7 @@ All of the above pass. See `STATE.md` for the numbers from the last real run.
 - `STATE.md` — verified current status, test inventory, known limitations
 - `ARCHITECTURE.md` — layers, boundaries, and why they are where they are
 - `PHYSICS.md` — every model, and the justification for every test tolerance
+- `PERFORMANCE.md` — measured timings, frame rates and what was not measured
 - `TESTING.md` — what is tested at which level, and the rules a test must follow
 - `GLOSSARY.md` — orbital mechanics terms as this project uses them
 - `ADR/` — the seven decisions that shaped the codebase
