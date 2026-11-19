@@ -25,9 +25,10 @@ import { SolarSystemScene } from '../render/scene.js';
 import type { RadialMode } from '../render/scale.js';
 import { BODY_DISPLAY } from './bodyDisplay.js';
 import type { BodyId } from '../core/ephemeris/solarSystem.js';
-import { AU_M } from '../core/constants.js';
+import { AU_M, SECONDS_PER_DAY } from '../core/constants.js';
 import { SCENARIOS, defaultScenario } from '../scenarios/catalogue.js';
 import type { Scenario } from '../scenarios/types.js';
+import type { CraftSpec } from '../sim/craft.js';
 import {
   buildMissionPlan,
   missionProgress,
@@ -36,15 +37,13 @@ import {
 } from './missionView.js';
 import { MissionPanel } from './MissionPanel.js';
 import { PorkchopPanel } from './PorkchopPanel.js';
+import { departureAsymptote, type Porkchop } from '../core/transfer/porkchop.js';
+import { applyDepartureNode, buildTransferNode, departureSummary } from './transferView.js';
 
 const INITIAL_SCENARIO = defaultScenario();
 
 /** Colour of the craft's path, distinct from every body colour. */
 const MISSION_COLOR = 0xff9f1c;
-
-function planFor(scenario: Scenario): MissionPlan | null {
-  return scenario.mission ? buildMissionPlan(scenario.mission, scenario.epochUtc) : null;
-}
 
 function progressFor(plan: MissionPlan | null, simSeconds: number): MissionProgress | null {
   return plan ? missionProgress(plan, simSeconds) : null;
@@ -82,14 +81,28 @@ export function App(): React.JSX.Element {
   );
 
   const [scenario, setScenario] = useState<Scenario>(INITIAL_SCENARIO);
+  // The mission is state, not derived from the scenario, because a planned departure writes a
+  // node into it. It is seeded from the scenario and replaced wholesale on a scenario switch,
+  // so a node planned in one scenario can never leak into another.
+  const [mission, setMission] = useState<CraftSpec | undefined>(INITIAL_SCENARIO.mission);
   const [selected, setSelected] = useState<BodyId>(INITIAL_SCENARIO.focus);
   const [warp, setWarpState] = useState<Warp>(INITIAL_SCENARIO.startWarp);
   const [scaleMode, setScaleMode] = useState<RadialMode>(INITIAL_SCENARIO.view.radialMode);
   const [display, setDisplay] = useState<DisplayState>(INITIAL_DISPLAY);
+  // Feedback from the last "plan departure" attempt. Null means nothing has been attempted.
+  const [departureIssue, setDepartureIssue] = useState<string | null>(null);
+  const [departureNote, setDepartureNote] = useState<string | null>(null);
+  // The last porkchop grid, kept so a departure can be planned from a cell without the panel
+  // and the app having to share React state for the whole grid.
+  const lastGridRef = useRef<Porkchop | null>(null);
 
-  // The plan depends only on the mission and the epoch, so it is derived from the scenario
-  // rather than stored: one propagation per scenario, not per frame.
-  const plan = useMemo(() => planFor(scenario), [scenario]);
+  // The plan depends only on the mission and the epoch, so it is derived rather than stored:
+  // one propagation per mission change, not per frame. The epoch is a dependency because node
+  // times are measured from it.
+  const plan = useMemo(
+    () => (mission ? buildMissionPlan(mission, scenario.epochUtc) : null),
+    [mission, scenario.epochUtc],
+  );
 
   // Read inside the frame loop, which must not restart when the plan changes. Synced in an
   // effect because a ref written during render is exactly what the linter forbids: it can
@@ -120,6 +133,12 @@ export function App(): React.JSX.Element {
       setSelected(next.focus);
       setScaleMode(next.view.radialMode);
       setScenario(next);
+      // The mission travels with the scenario. Leaving the old one in place would draw a
+      // satellite around the Sun under a scenario that has no craft in it.
+      setMission(next.mission);
+      setDepartureIssue(null);
+      setDepartureNote(null);
+      lastGridRef.current = null;
 
       const scene = sceneRef.current;
       if (!scene) return;
@@ -160,6 +179,74 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     applyPlan(plan);
   }, [applyPlan, plan]);
+
+  /**
+   * Turns the hovered porkchop cell into a manoeuvre node on the craft.
+   *
+   * Three things are being joined here and each has a failure mode the user must be told
+   * about rather than shown a silently empty plot: the cell may have no asymptote (a hole in
+   * the grid), the departure may be impossible from this park (wrong body, no solution), or
+   * the departure may lie past the end of the mission's plan. Only the last one changes the
+   * mission's span, and it says so.
+   */
+  const handlePlanDeparture = useCallback(
+    (column: number, row: number) => {
+      const grid = lastGridRef.current;
+      if (!grid) {
+        setDepartureIssue('Compute a plot first, then pick a cell in it.');
+        setDepartureNote(null);
+        return;
+      }
+      if (!mission) {
+        setDepartureIssue(
+          'This scenario has no spacecraft. A departure node needs a craft to burn from.',
+        );
+        setDepartureNote(null);
+        return;
+      }
+
+      const asymptote = departureAsymptote(grid, column, row);
+      if (!asymptote) {
+        setDepartureIssue(
+          'That cell has no single-revolution solution, so there is no departure direction to ' +
+            'aim at. Pick a cell inside the coloured region.',
+        );
+        setDepartureNote(null);
+        return;
+      }
+
+      const result = buildTransferNode({
+        asymptote,
+        centralBody: mission.centralBody,
+        orbit: mission.orbit,
+        epochUtc: scenario.epochUtc,
+      });
+      if (!result.ok) {
+        setDepartureIssue(result.issues.map((i) => i.message).join(' '));
+        setDepartureNote(null);
+        return;
+      }
+
+      const applied = applyDepartureNode(mission, result.node);
+      if (!applied.ok) {
+        setDepartureIssue(applied.reason);
+        setDepartureNote(null);
+        return;
+      }
+
+      setMission(applied.craft);
+      setDepartureIssue(null);
+      const extended = applied.horizonSeconds - mission.horizonSeconds;
+      setDepartureNote(
+        departureSummary(result.node) +
+          (extended > 0
+            ? ` The plan now runs ${(extended / SECONDS_PER_DAY).toFixed(0)} days further to ` +
+              'cover it.'
+            : ''),
+      );
+    },
+    [mission, scenario.epochUtc],
+  );
 
   const handleWarp = useCallback(
     (next: Warp) => {
@@ -360,7 +447,21 @@ export function App(): React.JSX.Element {
 
         {plan && <MissionPanel plan={plan} progress={progress} testid="mission" />}
 
-        <PorkchopPanel epochUtc={scenario.epochUtc} />
+        <PorkchopPanel
+          epochUtc={scenario.epochUtc}
+          onPlanDeparture={handlePlanDeparture}
+          onGrid={(grid) => {
+            lastGridRef.current = grid;
+          }}
+          departureUnavailableReason={
+            mission
+              ? null
+              : 'This scenario has no spacecraft, so there is nothing to plan a departure from. ' +
+                'Switch to a mission scenario to use this.'
+          }
+          departureIssue={departureIssue}
+          departureNote={departureNote}
+        />
 
         <div className="section">
           <h2>Bodies</h2>

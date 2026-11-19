@@ -21,10 +21,10 @@ Last full run: `npm run verify` (2026-11-19) and `npx playwright test`.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 449 tests / 20 files                               |
-| Build (`vite build`)        | PASS, 833 kB JS (226 kB gzip)                            |
+| Unit tests (`vitest run`)   | PASS, 532 tests / 22 files                               |
+| Build (`vite build`)        | PASS, 842 kB JS (230 kB gzip)                            |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
-| E2E (`npx playwright test`) | PASS, 26 tests against the real app in headless Chromium |
+| E2E (`npx playwright test`) | PASS, 32 tests against the real app in headless Chromium |
 
 All six were run, not inferred. The e2e suite starts its own dev server and drives the real
 page: it asserts React mounts, a WebGL canvas is created and sized, the clock advances while
@@ -43,6 +43,12 @@ survives the pointer resting still, an all-hole grid paints zero opaque pixels a
 validation blocks a mismatched body pair and an unparseable date without taking the app down, and
 the plot stays usable across a scenario switch. The plot's canvas is 2D, so those tests read it
 back with `getImageData` directly — no screenshot decode needed.
+
+The transfer-to-node workflow is covered end to end as well: the departure button is disabled
+until a cell is clicked, a clicked cell produces a node with a cost and an instant, a departure
+months out extends the plan and says by how much, re-planning the same cell replaces its node
+instead of stacking a second, a scenario without a spacecraft disables the action with a reason
+instead of failing silently, and a fully converged grid produces a node from an arbitrary cell.
 
 Note on the browser: the paired interactive browser extension was not connected, so
 verification ran through Playwright's Chromium with software GL
@@ -64,16 +70,18 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/lambert.test.ts`         | 35    | Hohmann/bi-elliptic/plane change + Lambert solver                 |
 | `tests/clock.test.ts`           | 21    | warp, step budget, frame-rate independence, formatting            |
 | `tests/simulation.test.ts`      | 15    | epoch/JD handling, body positions, determinism, reset             |
-| `tests/scale.test.ts`           | 17    | scene scale, radius compression, radial mapping                   |
-| `tests/scenario.test.ts`        | 24    | scenario schema, validation errors, bundled catalogue             |
+| `tests/scale.test.ts`           | 21    | scene scale, radius compression, radial mapping                   |
+| `tests/scenario.test.ts`        | 35    | scenario schema, validation errors, bundled catalogue             |
 | `tests/maneuver.test.ts`        | 23    | node frames, magnitudes, ordering, Δv totals                      |
 | `tests/trajectory.test.ts`      | 25    | propagation modes, burns in-frame, Δv accounting, Hohmann arc     |
-| `tests/craft.test.ts`           | 14    | circular orbit states, periods, speeds, surface clearance         |
+| `tests/craft.test.ts`           | 18    | circular orbit states, frames, periods, speeds, clearance         |
 | `tests/trajectoryLines.test.ts` | 20    | body-fixed frame, exaggeration, envelope clipping, flown prefix   |
-| `tests/missionView.test.ts`     | 16    | plan/progress split, Δv accounting, interpolation, impacts        |
+| `tests/missionView.test.ts`     | 20    | plan/progress split, Δv accounting, interpolation, aliasing       |
 | `tests/porkchop.test.ts`        | 34    | grid construction, Lambert agreement, cost/geometry, holes        |
-| `tests/porkchopView.test.ts`    | 48    | colour ramp, image orientation, pointer mapping, ticks, readout   |
-| `e2e/shell.spec.ts`             | 26    | boot, WebGL, clock, picking, drag, zoom, scale, mission, porkchop |
+| `tests/porkchopView.test.ts`    | 50    | colour ramp, image orientation, pointer mapping, ticks, readout   |
+| `tests/departure.test.ts`       | 31    | closed-form departure, Oberth crossover, phase search, plane cost |
+| `tests/transferView.test.ts`    | 42    | cell -> node, timing shift, warnings, horizon extension           |
+| `e2e/shell.spec.ts`             | 32    | boot, WebGL, clock, picking, drag, zoom, mission, plot, departure |
 
 ## Module inventory
 
@@ -94,16 +102,17 @@ the same as a check on a GPU-backed desktop browser.
 | `transfer/transfers.ts`           | complete, tested                         |
 | `transfer/lambert.ts`             | complete, tested (single revolution)     |
 | `transfer/porkchop.ts`            | complete, tested (grid of Lambert costs) |
+| `transfer/departure.ts`           | complete, tested (closed-form departure) |
 
 `src/sim` — pure, no DOM, no clock, no RNG:
 
-| Module          | Status                                                    |
-| --------------- | --------------------------------------------------------- |
-| `clock.ts`      | complete, tested (warp, budget, step coarsening)          |
-| `simulation.ts` | complete, tested (epoch, JD, positions, snapshots)        |
-| `maneuver.ts`   | complete, tested (frames, ordering, Δv totals)            |
-| `trajectory.ts` | complete, tested (two-body + N-body, burns, impact check) |
-| `craft.ts`      | complete, tested (circular orbit parameterisation)        |
+| Module          | Status                                                           |
+| --------------- | ---------------------------------------------------------------- |
+| `clock.ts`      | complete, tested (warp, budget, step coarsening)                 |
+| `simulation.ts` | complete, tested (epoch, JD, positions, snapshots)               |
+| `maneuver.ts`   | complete, tested (frames, ordering, Δv totals)                   |
+| `trajectory.ts` | complete, tested (two-body + N-body, burns, impact check)        |
+| `craft.ts`      | complete, tested (circular orbit parameterisation, shared frame) |
 
 `src/render`:
 
@@ -116,15 +125,16 @@ the same as a check on a GPU-backed desktop browser.
 
 `src/ui`:
 
-| Module              | Status                                                   |
-| ------------------- | -------------------------------------------------------- |
-| `App.tsx`           | complete: viewport, scenario picker, time bar, inspector |
-| `bodyDisplay.ts`    | complete: names, colours, ordering                       |
-| `missionView.ts`    | complete, tested: plan/progress split                    |
-| `MissionPanel.tsx`  | complete: readouts, budget, node list                    |
-| `porkchopView.ts`   | complete, tested: ramp, image, pointer, ticks, readout   |
-| `PorkchopPanel.tsx` | complete: canvas heat-map, hover readout, collapsible    |
-| `styles.css`        | complete: dark theme, node list, plot, reduced motion    |
+| Module              | Status                                                    |
+| ------------------- | --------------------------------------------------------- |
+| `App.tsx`           | complete: viewport, scenario picker, time bar, inspector  |
+| `bodyDisplay.ts`    | complete: names, colours, ordering                        |
+| `missionView.ts`    | complete, tested: plan/progress split, sampling adequacy  |
+| `MissionPanel.tsx`  | complete: readouts, budget, node list, aliasing caveat    |
+| `porkchopView.ts`   | complete, tested: ramp, image, pointer, ticks, readout    |
+| `PorkchopPanel.tsx` | complete: canvas heat-map, hover, click-select, departure |
+| `transferView.ts`   | complete, tested: cell -> node, timing, warnings, horizon |
+| `styles.css`        | complete: dark theme, node list, plot, reduced motion     |
 
 `src/scenarios` — schema, validation and the bundled catalogue:
 
@@ -138,23 +148,24 @@ Entry points: `index.html`, `src/main.tsx`, `e2e/shell.spec.ts`, `playwright.con
 `scripts/inspect-screenshot.mjs` (decodes a screenshot and reports measurable facts; the agent
 cannot view images, so a screenshot is only ever "measured", never "looked at").
 
-Not yet written: the maneuver-node _editor_ (nodes are shown and marked applied, but there is no
-add/edit/delete control yet — `leo-raise` carries its node as scenario data), the transfer →
-node workflow, ground track, scenario persistence and file import/export.
+Not yet written: the maneuver-node _editor_ (nodes are shown and marked applied, and one can now
+be created from a porkchop cell, but there is no edit/delete control yet — `leo-raise` carries its
+node as scenario data), arrival/capture burns, ground track, scenario persistence and file
+import/export.
 
 ## Milestones
 
-| Milestone                 | Status                                                             |
-| ------------------------- | ------------------------------------------------------------------ |
-| M0 scaffold               | done                                                               |
-| M1 physics foundation     | done                                                               |
-| M2 N-body + solar system  | done                                                               |
-| M3 3D shell               | done (M3.1-M3.6)                                                   |
-| M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2)   |
-| M5 mission planning       | M5.1, M5.2, M5.3 done; transfer workflow and scenarios outstanding |
-| M6 ground track + Moon    | not started                                                        |
-| M7 scenarios + polish     | not started                                                        |
-| M8 hardening              | not started                                                        |
+| Milestone                 | Status                                                           |
+| ------------------------- | ---------------------------------------------------------------- |
+| M0 scaffold               | done                                                             |
+| M1 physics foundation     | done                                                             |
+| M2 N-body + solar system  | done                                                             |
+| M3 3D shell               | done (M3.1-M3.6)                                                 |
+| M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
+| M5 mission planning       | M5.1–M5.4 done; Earth-Mars/GTO scenarios outstanding (M5.5)      |
+| M6 ground track + Moon    | not started                                                      |
+| M7 scenarios + polish     | not started                                                      |
+| M8 hardening              | not started                                                      |
 
 ## Known limitations carried forward
 
@@ -189,8 +200,9 @@ node workflow, ground track, scenario persistence and file import/export.
   is drawn at 72 units from Earth-drawn-space while its scene position is ~0.03 units away.
 - Inclinations are ecliptic-referenced, not equatorial (PHYSICS.md §10.4), so a quoted 53° is
   53° from the ecliptic. Corrected properly only when the ground track arrives (M6).
-- Maneuver nodes are displayed and marked applied as the clock passes them, but there is no
-  add/edit/delete control yet; a node is scenario data. M4.2's UI half stays open in PLAN.md.
+- Maneuver nodes are displayed and marked applied as the clock passes them, and one can now be
+  created from a porkchop cell, but there is no edit or delete control yet; other nodes are
+  scenario data. M4.2's UI half stays open in PLAN.md.
 - **Porkchop cost is the sum of the two v-infinity speeds, not parking-orbit delta-v.** The
   Oberth effect is omitted, so the plot ranks windows correctly (Spearman ρ ≥ 0.9997 on the
   grids measured, and the parking-orbit optimum landed in the same cell every time) while the
@@ -205,3 +217,24 @@ node workflow, ground track, scenario persistence and file import/export.
 - **The porkchop is heliocentric only.** The Moon is excluded because a lunar transfer is a
   geocentric problem; a departure or arrival orbit's own radius is not an input, so no
   departure-escape or capture delta-v is computed.
+- **A planned departure is a departure only.** `buildTransferNode` costs the burn out of the
+  parking orbit; the arrival is still just the cell's `v_inf` number, because a craft in this
+  model has one central body and patched conics are not in v1.0.0. A mission planned this way
+  escapes Earth and is drawn escaping it (PHYSICS.md §10.2), which is honest about the model and
+  not a flyable Earth-Mars mission.
+- **The departure burn can have a periapsis inside the departure body** and still be created. The
+  propagated path never enters the body (the burn is outbound), so the simulation is consistent,
+  but a real mission would reject the arc. Reported as a `below-surface` warning on the node
+  (D-023, PHYSICS.md §12.5) with the fix (a parking inclination nearer the target asymptote).
+- **A planned departure extends the mission's horizon, which aliases the drawn coast.** A 735-day
+  horizon draws one sample per 2.77 parking orbits, so the picture is a star polygon even though
+  the states are exact. Reported as `periodFractionPerSample` and a panel caveat (D-029,
+  PHYSICS.md §12.8). Raising the point cap does not fix it: 4000 points over 735 days is still
+  0.44 of a period per sample.
+- **Extending a plan past the horizon is refused for N-body missions** rather than computed:
+  months of integration at millisecond tolerances is not interactive. The panel says so
+  (D-025).
+- **Porkchop timing is 2.6x slower on this machine than when M5.3 measured it**, uniformly across
+  grid sizes, because the CPU runs at 1.5 GHz of a 2.2 GHz maximum on battery. Both measurements
+  are in PHYSICS.md §11.1 rather than one replacing the other: a wall-clock figure from a laptop
+  is only comparable to itself at the same clock state.

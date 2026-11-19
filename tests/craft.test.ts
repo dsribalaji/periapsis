@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  circularOrbitFrame,
   circularOrbitState,
   circularPeriod,
   circularSpeed,
@@ -7,7 +8,8 @@ import {
   type CraftSpec,
 } from '../src/sim/craft.js';
 import { BODIES } from '../src/core/ephemeris/solarSystem.js';
-import { stateToElements } from '../src/core/orbit/elements.js';
+import { localOrbitalFrame, stateToElements } from '../src/core/orbit/elements.js';
+import { dot, length } from '../src/core/math/vec3.js';
 
 const R_EARTH = BODIES.earth.radius;
 const MU_EARTH = BODIES.earth.mu;
@@ -25,6 +27,56 @@ function spec(patch: Partial<CraftSpec> = {}): CraftSpec {
     ...patch,
   };
 }
+
+describe('circular orbit frame', () => {
+  it('agrees with the state it produces, in every direction', () => {
+    // The single definition this module exists to provide. `localOrbitalFrame` on the state
+    // and the frame returned directly must be the same three vectors, at any inclination and
+    // phase, or the transfer code and the propagator disagree about what a burn means.
+    for (const inc of [0, 0.3, (28.5 * Math.PI) / 180, 1.4, Math.PI / 2]) {
+      for (const phase of [0, 1.1, 3.0, 5.7]) {
+        const orbit = { altitudeM: 400e3, inclinationRad: inc, phaseRad: phase };
+        const frame = circularOrbitFrame(orbit);
+        const { r, v } = circularOrbitState('earth', orbit);
+        const fromState = localOrbitalFrame({ r, v });
+        for (const key of ['prograde', 'normal', 'radial'] as const) {
+          expect(frame[key].x).toBeCloseTo(fromState[key].x, 12);
+          expect(frame[key].y).toBeCloseTo(fromState[key].y, 12);
+          expect(frame[key].z).toBeCloseTo(fromState[key].z, 12);
+        }
+      }
+    }
+  });
+
+  it('has a normal whose y component is negative for a prograde inclined orbit', () => {
+    // The sign that was wrong in the transfer code: for the p, q = (0, cos i, sin i) basis,
+    // r x v points at (0, -sin i, cos i). Writing +sin i mirrors the bump of every burn.
+    const inc = (28.5 * Math.PI) / 180;
+    const { normal } = circularOrbitFrame({ altitudeM: 300e3, inclinationRad: inc, phaseRad: 0 });
+    expect(normal.x).toBeCloseTo(0, 12);
+    expect(normal.y).toBeCloseTo(-Math.sin(inc), 12);
+    expect(normal.z).toBeCloseTo(Math.cos(inc), 12);
+  });
+
+  it('is orthonormal, so a burn magnitude is frame-independent', () => {
+    for (const inc of [0, 0.77, 2.1]) {
+      const frame = circularOrbitFrame({ altitudeM: 300e3, inclinationRad: inc, phaseRad: 2.4 });
+      for (const v of [frame.prograde, frame.normal, frame.radial]) {
+        expect(length(v)).toBeCloseTo(1, 12);
+      }
+      expect(dot(frame.prograde, frame.normal)).toBeCloseTo(0, 12);
+      expect(dot(frame.prograde, frame.radial)).toBeCloseTo(0, 12);
+      expect(dot(frame.normal, frame.radial)).toBeCloseTo(0, 12);
+    }
+  });
+
+  it('takes an explicit phase, so a caller can evaluate any point on the orbit', () => {
+    const orbit = { altitudeM: 300e3, inclinationRad: 0.4, phaseRad: 0 };
+    const at = circularOrbitFrame(orbit, Math.PI / 2);
+    expect(at.radial.y).toBeCloseTo(Math.cos(0.4), 12);
+    expect(at.radial.x).toBeCloseTo(0, 12);
+  });
+});
 
 describe('circular orbit state', () => {
   it('puts the craft at the stated altitude above the body radius', () => {

@@ -82,6 +82,14 @@ export function MissionPanel({ plan, progress, testid }: MissionPanelProps): Rea
       {plan.truncated && (
         <p className="caveat">The propagator stopped early: the horizon was not reached.</p>
       )}
+      {plan.coastAliased && (
+        <p className="caveat" data-testid="mission-aliased">
+          The plan spans {(plan.horizonSeconds / 86400).toFixed(0)} days, so each drawn sample
+          covers {plan.periodFractionPerSample.toFixed(2)} orbits. The states and the delta-v are
+          exact, but the drawn coast is too coarse to read as an orbit: it is a star rather than a
+          circle. Planned departures sit this far out on purpose.
+        </p>
+      )}
 
       <h2 style={{ marginTop: 6 }}>Nodes</h2>
       {plan.nodes.length === 0 ? (

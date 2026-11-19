@@ -538,6 +538,13 @@ Measured cost, single-threaded, Node 24: 60x60 in 45 ms, 100x100 in 82 ms, 140x1
 200x200 in 342 ms. The panel therefore computes on a button press rather than on every
 keystroke.
 
+Those figures were measured with the machine at full clock. Re-measured for M5.4 on the same
+laptop with the CPU at 1.5 GHz against a 2.2 GHz maximum (balanced power scheme, on battery),
+the same grid costs 60x60 78 ms, 100x100 211 ms, 140x140 415 ms, 200x200 846 ms - a uniform
+2.6x, which is the clock and not a regression in the loop (M5.4 added no work to the grid).
+Wall-clock numbers on a laptop are only comparable to themselves at the same clock state, so
+both are recorded rather than one being replaced.
+
 ### 11.2 The cost is v-infinity, not delta-v from a parking orbit
 
 `cost = v_inf_dep + v_inf_arr` is the standard "patch" comparison. It is **not** the delta-v a
@@ -642,3 +649,211 @@ a nearly coplanar plane.
 - **The display layer's identities, 1e-9**: the image is `columns x rows` pixels; a
   transparent cell is exactly a `NaN` cell; `cellFromFraction` round-trips `fractionOfCell` for
   every cell in the grid.
+
+## 12. Departure burns from a parking orbit
+
+Section 11 ends with a number that is not a burn. A porkchop cell reports the two hyperbolic
+excess speeds; a mission spends delta-v getting _out_ of a parking orbit and _into_ a capture
+orbit. This section closes the departure half: given the excess speed a cell needs and the
+direction it needs to leave on, what single impulsive burn puts the craft on that hyperbola,
+and where on the orbit must it happen?
+
+`core/transfer/departure.ts` does the physics; `ui/transferView.ts` turns the answer into a
+maneuver node. Both are pure.
+
+### 12.1 The closed form
+
+Burn at radius `r` about a body of parameter `mu`, from a circular orbit at speed
+`vc = sqrt(mu/r)`, onto a hyperbola whose excess speed is `v_inf`. Energy conservation fixes the
+post-burn speed and, notably, not the geometry:
+
+```text
+w = sqrt(2 mu / r + v_inf^2)
+```
+
+With `A = mu / v_inf^2` the semi-major axis magnitude and `s^2 = e^2 - 1`, the conic equation at
+the burn point plus the asymptote relation `cos nu_inf = -1/e` reduce to a quadratic in `s`:
+
+```text
+s^2 - k s sin(d) - k (1 - cos d) = 0,      k = r / A,   d = angle from burn point to asymptote
+s = (k sin d + sqrt(k^2 sin^2 d + 4 k (1 - cos d))) / 2
+e = sqrt(1 + s^2)
+```
+
+The `e` cancels out of the derivation, which is why this is closed form and not a root find:
+no iteration appears in the geometry at all. The only search is over _which phase to burn at_.
+
+The flight path angle of the post-burn velocity is
+
+```text
+gamma = atan2(s cos d + sin d, (1 - cos d) + s sin d)
+```
+
+and it is not zero in general. A burn along `+prograde` matches this only when the asymptote
+lies in the parking plane and 90 degrees around it from the burn point. Everywhere else the burn
+carries radial and normal components. That is not an artifact: it is the burn that has to be
+flown, and reporting it in prograde/normal/radial is the whole point, because those are the
+components a maneuver node stores.
+
+### 12.2 The Oberth crossover is `v_inf = vc/2`
+
+The textbook statement is "leaving from a deep well is cheaper than the excess speed suggests".
+That is true only above a threshold, and the threshold is exact:
+
+```text
+sqrt(vc^2 + v^2) - vc < v      <=>      v > vc / 2
+```
+
+At 300 km above Earth `vc = 7.73 km/s`, so the crossover is 3.86 km/s - squarely inside the
+interplanetary range. Below it the ideal burn costs _more_ than the excess speed, because most
+of the fuel goes into cancelling the speed the craft already has. `oberthHelps` encodes the
+inequality rather than the folklore, and both regimes are tested.
+
+Measured on the default Earth-Mars window's cheapest cell (2028-11-21, `v_inf = 3.03 km/s`,
+300 km park): the in-plane, at-periapsis floor is 3,615 m/s. Since 3.03 < 3.86, `oberthHelps`
+is **false** for that cell - the burn costs more than the excess speed.
+
+### 12.3 The burn is at `delta = nu_inf`, not 90 degrees from the aim
+
+A first guess is "aim 90 degrees around the orbit from where I want to go", which is wrong and
+expensive. The burn point that puts the craft at periapsis is the one where the angle to the
+outbound asymptote equals the hyperbola's own `nu_inf = acos(-1/e)`, and that is neither 90 nor
+a constant: measured 149.8 degrees at `v_inf = 3.06 km/s` from 300 km (e = 1.157), and 118.9
+degrees at 8 km/s (e = 2.071), because a faster escape is a flatter hyperbola. It is the shape
+of the hyperbola that decides where the burn goes, not the direction of the aim.
+
+Measured at 300 km and `v_inf = 3.06 km/s`: burning with `delta = 90` costs 6,568 m/s against
+the 3,622 m/s floor. `delta` near zero is a radial escape (infinite speed from a circular orbit)
+and `delta` near pi sends the asymptote back through the body; both are rejected rather than
+returned as a large number.
+
+One consequence deserves its own sentence, because it is the module's least intuitive result:
+at `delta = 90` degrees the solver still finds a valid hyperbola with `nu = 64.3` degrees, not
+periapsis. The cost of that geometry is 6,568 m/s, which is 81% above the floor. "Aim at the
+point 90 degrees ahead and burn" is not merely suboptimal; it is nearly twice the price.
+
+### 12.4 The plane-change penalty is real and is reported, not hidden
+
+The transfer plane is fixed by the burn point and the asymptote, so it contains the asymptote
+but generally **not** the parking orbit's plane. When the two differ the burn must rotate the
+velocity out of the parking plane, and that costs a plane change on top of the escape.
+
+Measured on the cheapest default Earth-Mars cell (`v_inf = 3.03 km/s`, 300 km park, aim 25.9
+degrees above the ecliptic):
+
+| Parking inclination | Burn, m/s | Over the 3,615 floor | Aim elevation above park plane | Periapsis | Below surface |
+| ------------------- | --------- | -------------------- | ------------------------------ | --------- | ------------- |
+| 0°                  | 6,581     | +2,966               | +25.9°                         | 6,109 km  | yes           |
+| 28.5°               | 5,560     | +1,945               | +18.2°                         | 6,354 km  | yes           |
+| 51.6°               | 4,338     | +724                 | +8.8°                          | 6,592 km  | no            |
+| 90°                 | 4,326     | +712                 | −8.7°                          | 6,594 km  | no            |
+
+Two things in that table are worth stating plainly.
+
+- **The cost falls as the parking inclination rises**, because the aim is 25.9 degrees above the
+  ecliptic and a 51.6-degree park is closer to it than an equatorial one. A reader who expects
+  "higher inclination is always worse" will read the table backwards; the elevation column is
+  the explanation, and it is in the panel for exactly that reason.
+- **The penalty is not small.** 2,966 m/s of plane change on a 3,615 m/s escape is 82% on top.
+  For comparison, a full 28.5-degree rotation of the post-burn velocity (11.34 km/s) costs
+  5,585 m/s on its own, so the forced penalty is the same order as the thing it replaces.
+
+### 12.5 A below-surface periapsis is a warning, not a refusal
+
+Four of the table's entries have a periapsis inside the Earth. That is not a contradiction and
+not an error: the burn happens on the **outbound** leg at radius `r`, the true anomaly is
+positive by construction, and the radius only grows afterwards, so the propagated path never
+enters the body. The mission panel's own impact check agrees (no impact, minimum radius 6,921
+km on the bundled 550 km mission).
+
+It is still not flyable as a real mission: no departure would be accepted with its periapsis
+inside the planet. So it is carried as a `below-surface` warning on the node and shown in the
+panel, together with the fix (a parking plane nearer the target asymptote). Refusing outright
+would hide the geometry that produced it; saying nothing would let a reader see "periapsis
+5,893 km" beside "burn at 6,671 km" and reasonably conclude the code is broken.
+
+### 12.6 The search over phase has two minima, so every minimum is refined
+
+Cost as a function of burn phase is smooth but **not unimodal**. Measured over 200 random
+geometry pairs, 101 had more than one local minimum (49/100 in the earlier sweep). A ternary
+search from one bracket therefore returns a local minimum that is frequently not the global one,
+and refining only the cheapest sample is the same mistake wearing a different hat.
+
+The module samples the whole orbit (360 phases by default, one degree of arc), finds every
+local minimum on the cyclic sample lattice, refines each with a 140-iteration ternary search,
+and keeps the best. Measured against a 100,000-point dense scan over 400 random geometries the
+worst disagreement was 5e-6 m/s; refining only the cheapest sample was wrong in 49% of the same
+sweep. Raising the sample count to 720 or 1440 changed no answer.
+
+Measured cost: 1.2 ms at 90 samples, 1.3 ms at 360, 1.9 ms at 720, for a full plan including the
+search. The phase search is not the expensive part of the workflow - the grid is.
+
+### 12.7 Timing: the burn happens within one parking period of the requested date
+
+The cell's departure date is a calendar fact; the burn cannot happen at an arbitrary point on
+the parking orbit. `planDeparture` returns a phase, and the node is placed at the **first
+passage of that phase at or after** the requested instant:
+
+```text
+phaseAtRequest = orbit.phaseRad + n * (t_departure - t_epoch)
+shiftSeconds   = wrapTo2Pi(plan.phaseRad - phaseAtRequest) / n
+timeSeconds    = (t_departure - t_epoch) + shiftSeconds
+```
+
+Using `plan.timeToBurnSeconds` directly instead - which is the phase from the epoch - is wrong by
+an arbitrary angle. Measured on a 314-day Earth-Mars cell at 300 km, the orbit has advanced
+3.1e4 rad, so the node would sit at a phase unrelated to the one the solve costed and the burn
+would not fly the trajectory the plot drew.
+
+The shift is therefore at most one parking period: 90.4 minutes at 300 km, 95.5 at 550 km,
+against a transfer of hundreds of days (0.02% of a 314-day flight). It is reported in the panel
+rather than absorbed. The alternative - burning at the calendar instant wherever the craft
+happens to be - can cost thousands of m/s, which is not a rounding error.
+
+Measured on the default window's cheapest cell from a 550 km, 51.6° park: the burn lands 45
+minutes after the requested date and costs 4.26 km/s (3.20 prograde, 2.53 normal, 1.23 radial)
+for 3.03 km/s of excess speed.
+
+### 12.8 Sampling: a planned departure aliases the drawn coast, and the panel says so
+
+A departure node is legitimately months away while the parking orbit it departs from laps every
+96 minutes. `propagateTrajectory` caps the whole horizon at `MAX_TRAJECTORY_POINTS`, so a 735-day
+horizon draws 339 points - one sample per 2.77 orbits. The propagated states are still exact
+closed-form solutions; the **drawn** coast is a star polygon rather than an orbit, and no number
+in the panel would otherwise say so.
+
+`periodFractionPerSample` makes that a number, `ALIASED_PERIOD_FRACTION = 0.125` is the
+threshold (one sample per eight revolutions), and `MissionPanel` shows the caveat when it trips.
+The bundled LEO raise is 0.010 (96 samples per orbit, dense); the planned 735-day departure is
+2.772 (aliased). Extending the horizon to reach a far node is what creates the condition, so the
+two facts belong together.
+
+### 12.9 Tolerances
+
+- **The requested excess speed is recovered exactly, 4 decimal places in m/s**, by an independent
+  route: rebuild the hyperbola from the post-burn state (energy, eccentricity vector, true
+  anomaly) and take `v_inf = sqrt(-mu/a)`. Measured agreement is at rounding. This is the
+  strongest statement the module makes - the burn reaches the speed the cell asked for, verified
+  without trusting the solver's bookkeeping.
+- **The asymptote direction is recovered to `dot = 1` at 9 decimal places**, again from the state
+  rather than from the solver. A one-degree aim error would show as 0.9998.
+- **The coplanar at-periapsis case hits the Oberth floor to 1e-3 m/s.** Where a floor exists the
+  solver must find it exactly; anything above it is a search failure, not physics.
+- **The burn never costs less than the floor**, over 40 random geometries: `deltaV >=
+idealDeltaV - 1e-6`. A negative saving is impossible and would mean a sign error.
+- **A 6.9-degree out-of-plane aim at 300 km costs 4,116.8 m/s against a 3,622.0 floor**, pinned to
+  0 decimal places. That number is a regression detector for the parking frame: it is the first
+  place a wrong orbit normal shows up as a number rather than a picture.
+- **The plane-change penalty rises monotonically with inclination** for a fixed ecliptic-ish aim
+  (0, 10, 20, 28.5, 40, 51.6 degrees), and a fully coplanar aim hits the floor to 1 m/s.
+- **The phase search agrees with a 60x720 brute-force scan within 0.05 m/s** across 12 random
+  geometries, and beats a 180,000-point scan outright on a geometry measured to have two minima.
+  The 0.05 bound is loose on purpose: it is a search-completeness test, not an arithmetic one.
+- **The node's own numbers recover the same excess speed**: `sqrt((vc + prograde)^2 + normal^2 +
+radial^2)` fed back through `w^2 = 2mu/r + v_inf^2` returns the cell's `v_inf` to 4 decimals.
+  A panel that shows both the burn and the excess speed therefore cannot show two numbers that
+  disagree.
+- **The node time is at most one parking period after the requested instant**, asserted on a real
+  cell: `0 <= shiftSeconds < parkingPeriod`.
+- **Re-planning the same cell is idempotent**: `withManeuver` replaces by id, so the node count
+  stays at one.

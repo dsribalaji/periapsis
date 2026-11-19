@@ -16,7 +16,7 @@
  */
 
 import { BODIES, type BodyId } from '../core/ephemeris/solarSystem.js';
-import { vec3 } from '../core/math/vec3.js';
+import { vec3, type Vec3 } from '../core/math/vec3.js';
 import type { StateVector } from '../core/orbit/elements.js';
 import type { Maneuver } from './maneuver.js';
 import type { PropagationMode, Spacecraft } from './trajectory.js';
@@ -45,6 +45,31 @@ export interface CraftSpec {
 }
 
 /**
+ * Unit vectors of a circular orbit's local frame at a phase, in the physics frame.
+ *
+ * The in-plane basis is `p = x̂` and `q = (0, cos i, sin i)`, so inclination 0 is prograde in
+ * the xy plane. Exposed separately from {@link circularOrbitState} because the *directions* do
+ * not depend on the body, its radius or its `mu` — only on the inclination and the phase —
+ * and because a second hand-written copy of this basis is how the orbit normal ended up with
+ * the wrong sign in the transfer code.
+ */
+export function circularOrbitFrame(
+  orbit: CircularOrbitSpec,
+  phaseRad: number = orbit.phaseRad,
+): { prograde: Vec3; normal: Vec3; radial: Vec3 } {
+  const cosI = Math.cos(orbit.inclinationRad);
+  const sinI = Math.sin(orbit.inclinationRad);
+  const cosU = Math.cos(phaseRad);
+  const sinU = Math.sin(phaseRad);
+  return {
+    radial: vec3(cosU, sinU * cosI, sinU * sinI),
+    prograde: vec3(-sinU, cosU * cosI, cosU * sinI),
+    // p x q, which is up and to the north for a prograde orbit: +y component is -sin i.
+    normal: vec3(0, -sinI, cosI),
+  };
+}
+
+/**
  * Position and velocity on a circular orbit, relative to the central body.
  *
  * The in-plane basis is `p̂` along the reference x axis and `q̂` tilted by the inclination
@@ -61,26 +86,18 @@ export function circularOrbitState(centralBody: BodyId, orbit: CircularOrbitSpec
     );
   }
 
-  const cosI = Math.cos(orbit.inclinationRad);
-  const sinI = Math.sin(orbit.inclinationRad);
-  const cosU = Math.cos(orbit.phaseRad);
-  const sinU = Math.sin(orbit.phaseRad);
-
-  // In-plane axes in the physics frame.
-  const p = vec3(1, 0, 0);
-  const q = vec3(0, cosI, sinI);
-
-  const r = vec3(
-    radius * (cosU * p.x + sinU * q.x),
-    radius * (cosU * p.y + sinU * q.y),
-    radius * (cosU * p.z + sinU * q.z),
-  );
+  const frame = circularOrbitFrame(orbit);
   const speed = Math.sqrt(mu / radius);
-  const v = vec3(
-    speed * (-sinU * p.x + cosU * q.x),
-    speed * (-sinU * p.y + cosU * q.y),
-    speed * (-sinU * p.z + cosU * q.z),
-  );
+  const r = {
+    x: radius * frame.radial.x,
+    y: radius * frame.radial.y,
+    z: radius * frame.radial.z,
+  };
+  const v = {
+    x: speed * frame.prograde.x,
+    y: speed * frame.prograde.y,
+    z: speed * frame.prograde.z,
+  };
 
   return { r, v };
 }

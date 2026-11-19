@@ -386,11 +386,21 @@ test.describe('porkchop plot', () => {
     await openAndCompute(page);
     const summary = page.getByTestId('porkchop-summary');
     await expect(summary).toContainText('Cheapest window', { timeout: 20_000 });
-    // The default window starts at the scenario's epoch year, so the best cell is in it.
-    // Measured: 2026-10-26 departure, 314 d, 5.63 km/s, which is the real 2026 Mars window.
     await expect(summary).toContainText('km/s');
     await expect(summary).toContainText('C3');
-    await expect(summary).toContainText('depart 2026-');
+
+    // The default window starts at the epoch, so the cheapest cell must not be in the past.
+    // Measured: 2028-11-21 departure (the 2028 Mars window), 300 d, 6.00 km/s. Pinning the
+    // year would only re-assert the epoch; the invariant worth testing is the ordering, since
+    // a past cell is exactly what cannot become a manoeuvre node.
+    const text = (await summary.textContent()) ?? '';
+    const departure = /depart (\d{4}-\d{2}-\d{2})/.exec(text)?.[1];
+    expect(departure).toBeDefined();
+    const epochText = (await page.getByTestId('scenario-epoch').textContent()) ?? '';
+    const epoch = /(\d{4}-\d{2}-\d{2})/.exec(epochText)?.[1];
+    expect(epoch).toBeDefined();
+    // ISO civil dates compare lexicographically in the same order as chronologically.
+    expect(departure! >= epoch!).toBe(true);
     // A summary of a converged grid must never also claim there is no arc.
     await expect(summary).not.toContainText('No single-revolution arc');
   });
@@ -490,5 +500,137 @@ test.describe('porkchop plot', () => {
     // Measured: the 2027-onward window's best Earth-Mars departure is 2028-11-27 at 6.01 km/s,
     // i.e. a later synodic window was found rather than the 2026 one that is no longer in range.
     await expect(page.getByTestId('porkchop-summary')).toContainText(/depart 202[7-9]-/);
+  });
+});
+
+test.describe('transfer to maneuver node', () => {
+  /**
+   * Clicks a fractional point of the plot, which *selects* the cell.
+   *
+   * A click rather than a hover is what the workflow needs: the departure button sits below the
+   * plot, and moving the pointer to it raises `pointerleave` on the canvas. A hover-only design
+   * would therefore disable the button at the instant the user reached for it.
+   */
+  const chooseCell = async (
+    page: import('@playwright/test').Page,
+    fx: number,
+    fy: number,
+  ): Promise<void> => {
+    const canvas = page.getByTestId('porkchop-canvas');
+    await canvas.scrollIntoViewIfNeeded();
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('porkchop canvas has no box');
+    await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+  };
+
+  const openComputeAndChoose = async (page: import('@playwright/test').Page): Promise<void> => {
+    await page.getByTestId('porkchop-toggle').click();
+    await page.getByTestId('porkchop-compute').click();
+    await expect(page.getByTestId('porkchop-canvas')).toBeVisible({ timeout: 20_000 });
+    await chooseCell(page, 0.45, 0.45);
+  };
+
+  test('the departure button is disabled until a cell is chosen', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await page.getByTestId('porkchop-toggle').click();
+    await page.getByTestId('porkchop-compute').click();
+    await expect(page.getByTestId('porkchop-canvas')).toBeVisible({ timeout: 20_000 });
+
+    const plan = page.getByTestId('porkchop-plan-departure');
+    await expect(plan).toBeDisabled();
+    await chooseCell(page, 0.5, 0.5);
+    await expect(plan).toBeEnabled();
+
+    // And the selection survives the pointer leaving the plot, which is what makes the button
+    // reachable at all.
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(100);
+    await expect(plan).toBeEnabled();
+  });
+
+  test('a chosen cell becomes a node on the craft, with its cost and instant', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await openComputeAndChoose(page);
+
+    // One node from scenario data, one from the cell.
+    const nodes = page.getByTestId('mission-nodes').locator('.node-row');
+    await expect(nodes).toHaveCount(1);
+
+    await page.getByTestId('porkchop-plan-departure').click();
+
+    await expect(nodes).toHaveCount(2);
+    const transfer = nodes.filter({ hasText: 'Depart' });
+    await expect(transfer).toHaveCount(1);
+    // The burn is thousands of m/s, not the cell's 3-6 km/s of excess speed, because it comes
+    // from the departure solve rather than the Lambert cost.
+    await expect(page.getByTestId('mission-planned')).toContainText('m/s');
+
+    // The note says what happened, in words, including the timing slide.
+    const note = page.getByTestId('porkchop-departure-note');
+    await expect(note).toContainText('Node depart-');
+    await expect(note).toContainText('km/s');
+    await expect(note).toContainText(/after the requested date|at the requested instant/);
+    await expect(page.getByTestId('porkchop-departure-issue')).toHaveCount(0);
+  });
+
+  test('the plan is extended to cover a departure months out, and says so', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await openComputeAndChoose(page);
+
+    // The 550 km park laps every 96 minutes; the default window's cheapest cell is ~740 days
+    // out, far beyond the scenario's 11,600 s horizon.
+    await page.getByTestId('porkchop-plan-departure').click();
+    await expect(page.getByTestId('porkchop-departure-note')).toContainText('days further');
+
+    // And the mission panel states that the drawn coast is now too coarse to read as an orbit.
+    await expect(page.getByTestId('mission-aliased')).toBeVisible();
+  });
+
+  test('re-planning the same cell replaces its node instead of stacking a second', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await openComputeAndChoose(page);
+
+    const nodes = page.getByTestId('mission-nodes').locator('.node-row');
+    await page.getByTestId('porkchop-plan-departure').click();
+    await expect(nodes).toHaveCount(2);
+    const planned = await page.getByTestId('mission-planned').textContent();
+
+    await page.getByTestId('porkchop-plan-departure').click();
+    await expect(nodes).toHaveCount(2);
+    await expect(page.getByTestId('mission-planned')).toHaveText(planned ?? '');
+  });
+
+  test('refuses with a reason when the scenario has no spacecraft', async ({ page }) => {
+    await page.goto('/');
+    // inner-system has no craft, so there is nothing to burn from.
+    await openComputeAndChoose(page);
+    await expect(page.getByTestId('porkchop-plan-departure')).toBeDisabled();
+    await expect(page.getByTestId('mission')).toHaveCount(0);
+  });
+
+  test('a filled grid everywhere in the window produces a node from any cell', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await page.getByTestId('porkchop-toggle').click();
+    await page.getByTestId('porkchop-compute').click();
+    await expect(page.getByTestId('porkchop-canvas')).toBeVisible({ timeout: 20_000 });
+
+    // Three distant cells must each produce a node: the workflow is not a single lucky cell.
+    const nodes = page.getByTestId('mission-nodes').locator('.node-row');
+    for (const [fx, fy, expected] of [
+      [0.15, 0.85, 2],
+      [0.5, 0.5, 3],
+      [0.85, 0.15, 4],
+    ] as const) {
+      await chooseCell(page, fx, fy);
+      await page.getByTestId('porkchop-plan-departure').click();
+      await expect(nodes).toHaveCount(expected);
+    }
   });
 });

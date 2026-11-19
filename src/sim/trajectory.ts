@@ -118,7 +118,14 @@ export interface PropagateOptions {
   readonly enabledBodies?: readonly BodyId[];
 }
 
-function defaultSamples(horizonSeconds: number): number {
+/**
+ * How many samples `propagateTrajectory` will use for a horizon by default.
+ *
+ * Exported because the *density* relative to the orbit's own period is what decides whether a
+ * drawn coast is an orbit or an aliased star, and a caller that wants to warn about that needs
+ * the same number the propagator will pick.
+ */
+export function defaultSamples(horizonSeconds: number): number {
   return Math.min(
     MAX_TRAJECTORY_POINTS,
     Math.max(64, Math.ceil(horizonSeconds / MIN_POINT_SPACING_SECONDS)),

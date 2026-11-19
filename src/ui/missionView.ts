@@ -22,6 +22,7 @@ import { jdFromIsoUtc, jdTtFromJdUtc } from '../core/time/time.js';
 import { craftFromSpec, circularPeriod, circularSpeed, type CraftSpec } from '../sim/craft.js';
 import { totalDeltaV } from '../sim/maneuver.js';
 import {
+  defaultSamples,
   propagateTrajectory,
   radiusFromBody,
   remainingDeltaV,
@@ -68,6 +69,16 @@ export interface MissionPlan {
   readonly maxRadius: number;
   /** Planned span, seconds from epoch. */
   readonly horizonSeconds: number;
+  /**
+   * How much of one initial orbit each drawn sample covers. Smaller is denser.
+   *
+   * Surfaced rather than corrected: the states are exact closed-form solutions, so the numbers
+   * are right; only the picture is coarse. A plan months long on a 96-minute orbit cannot be
+   * drawn honestly with 4000 points, and pretending otherwise is worse than saying it.
+   */
+  readonly periodFractionPerSample: number;
+  /** True when a drawn sample spans more than {@link ALIASED_PERIOD_FRACTION} of a revolution. */
+  readonly coastAliased: boolean;
   /** Geometry to draw, body-centred scene units. */
   readonly frame: LocalFrameResult;
 }
@@ -88,6 +99,28 @@ export interface MissionProgress {
   readonly altitude: number | null;
 }
 
+/**
+ * How much of one initial orbit each drawn sample covers.
+ *
+ * This exists because a departure node is legitimately months away while the parking orbit it
+ * departs from laps every 96 minutes. `propagateTrajectory` caps the whole horizon at
+ * `MAX_TRAJECTORY_POINTS`, so over a 735-day horizon each sample spans nearly three
+ * revolutions: the propagated states are still exact closed-form solutions, but the *drawn*
+ * coast is a star polygon rather than an orbit, and no number in the panel would say so.
+ *
+ * The value is a fraction of a period, so **smaller is denser**. A short horizon such as the
+ * bundled LEO raise is 0.010 (96 samples per orbit); a planned interplanetary departure from a
+ * 550 km park measured 2.772 (one point per 2.8 orbits).
+ */
+export function periodFractionPerSample(spec: CraftSpec, samples?: number): number {
+  const count = samples ?? defaultSamples(spec.horizonSeconds);
+  const period = circularPeriod(spec);
+  return period > 0 && count > 0 ? spec.horizonSeconds / count / period : 0;
+}
+
+/** Fraction of a period per sample above which a drawn coast aliases. One in eight is coarse. */
+export const ALIASED_PERIOD_FRACTION = 0.125;
+
 /** Propagates a mission and builds its drawable geometry. */
 export function buildMissionPlan(spec: CraftSpec, epochUtc: string): MissionPlan {
   const craft = craftFromSpec(spec);
@@ -105,6 +138,9 @@ export function buildMissionPlan(spec: CraftSpec, epochUtc: string): MissionPlan
 
   const radii = radiiFromBody(trajectory, spec.centralBody, epochJdTt);
   const bodyRadius = BODIES[spec.centralBody].radius;
+  const density = periodFractionPerSample(spec);
+  // An orbit drawn with fewer than eight points per revolution is not an orbit on screen.
+  const coastAliased = density > ALIASED_PERIOD_FRACTION;
 
   return {
     craftId: spec.id,
@@ -128,6 +164,8 @@ export function buildMissionPlan(spec: CraftSpec, epochUtc: string): MissionPlan
     minRadius: radii.min,
     maxRadius: radii.max,
     horizonSeconds: spec.horizonSeconds,
+    periodFractionPerSample: density,
+    coastAliased,
     frame,
   };
 }

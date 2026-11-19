@@ -50,10 +50,14 @@ function request(patch: Partial<PorkchopRequest> = {}): PorkchopRequest {
 }
 
 describe('default request', () => {
-  it('starts on the epoch year and covers three calendar years', () => {
+  it('starts at the epoch, so no column is in the past and every column can become a node', () => {
     const r = defaultPorkchopRequest('2026-11-18T12:00:00Z');
-    expect(r.departureStartIso).toBe('2026-01-01');
+    expect(r.departureStartIso).toBe('2026-11-18');
     expect(r.departureEndIso).toBe('2028-12-31');
+  });
+
+  it('starts at the epoch for a mid-January epoch too, not at the month boundary', () => {
+    expect(defaultPorkchopRequest('2027-01-02T03:04:05Z').departureStartIso).toBe('2027-01-02');
   });
 
   it('defaults to Earth to Mars, the textbook case', () => {
@@ -64,6 +68,14 @@ describe('default request', () => {
 
   it('produces a request that validates', () => {
     expect(validatePorkchopRequest(defaultPorkchopRequest('2026-11-18T12:00:00Z'))).toEqual([]);
+  });
+
+  it('leaves an end-of-year epoch a usable window rather than an empty one', () => {
+    // 31 December: a window that ended "two years later" is still three years of days away, but
+    // the start must not roll forward into an empty range.
+    const r = defaultPorkchopRequest('2026-12-31T23:00:00Z');
+    expect(r.departureStartIso).toBe('2026-12-31');
+    expect(validatePorkchopRequest(r)).toEqual([]);
   });
 });
 

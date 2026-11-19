@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildMissionPlan, missionProgress } from '../src/ui/missionView.js';
 import type { CraftSpec } from '../src/sim/craft.js';
+import { defaultSamples, MAX_TRAJECTORY_POINTS } from '../src/sim/trajectory.js';
 import { BODIES } from '../src/core/ephemeris/solarSystem.js';
 
 const EPOCH = '2026-11-18T12:00:00Z';
@@ -20,6 +21,50 @@ function spec(patch: Partial<CraftSpec> = {}): CraftSpec {
 }
 
 const R_ORBIT = BODIES.earth.radius + 550e3;
+
+describe('sampling adequacy', () => {
+  it('reports a short plan as densely sampled', () => {
+    // Two revolutions at one sample per minute: about 96 points per orbit.
+    const plan = buildMissionPlan(spec(), EPOCH);
+    expect(plan.periodFractionPerSample).toBeLessThan(0.05);
+    expect(plan.coastAliased).toBe(false);
+  });
+
+  it('flags a plan whose horizon dwarfs its orbit, instead of drawing an orbit that is not one', () => {
+    // A departure node 741 days out on a 96-minute orbit. The states are exact; 4000 points
+    // over 741 days cannot show an orbit, and the panel must say so rather than draw a star.
+    const plan = buildMissionPlan(spec({ horizonSeconds: 741 * 86400 }), EPOCH);
+    expect(plan.periodFractionPerSample).toBeGreaterThan(1);
+    expect(plan.coastAliased).toBe(true);
+  });
+
+  it('agrees with the propagator on how many samples it used', () => {
+    // The ratio is only meaningful if it divides by the count the propagator actually picked,
+    // which is capped: a 400,000 s horizon asks for 6667 samples and gets 4000.
+    const horizonSeconds = 400_000;
+    const plan = buildMissionPlan(spec({ horizonSeconds }), EPOCH);
+    const count = defaultSamples(horizonSeconds);
+    expect(count).toBe(MAX_TRAJECTORY_POINTS);
+    expect(plan.periodFractionPerSample).toBeCloseTo(
+      horizonSeconds / count / plan.initialPeriod,
+      12,
+    );
+  });
+
+  it('scales the ratio with the horizon and not with the altitude', () => {
+    const low = buildMissionPlan(spec({ horizonSeconds: 200_000 }), EPOCH);
+    const high = buildMissionPlan(
+      spec({
+        horizonSeconds: 200_000,
+        orbit: { altitudeM: 2000e3, inclinationRad: 0.9, phaseRad: 0 },
+      }),
+      EPOCH,
+    );
+    // A higher orbit has a longer period, so the same horizon is fewer periods: smaller ratio.
+    expect(high.initialPeriod).toBeGreaterThan(low.initialPeriod);
+    expect(high.periodFractionPerSample).toBeLessThan(low.periodFractionPerSample);
+  });
+});
 
 describe('mission plan', () => {
   it('reports the circular speed and period of the initial orbit', () => {

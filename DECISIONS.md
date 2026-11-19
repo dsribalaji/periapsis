@@ -227,3 +227,117 @@ changes on every keystroke, would run on each character typed. Measuring the sid
 (2083 px open against a 860 px viewport) is what turned this from a hunch into a fix. The last
 successful plot is also kept while the form is edited, so comparing two windows does not blank
 the picture.
+
+## D-020 — The parking-orbit frame is defined once, in `sim/craft.ts`
+
+**Choice:** `circularOrbitFrame(orbit, phase)` returns the radial/prograde/normal triad and is the
+only definition of that geometry. `circularOrbitState` builds the epoch state from it and
+`ui/transferView.ts` builds the departure burn from it.
+**Alternatives:** a local helper in the transfer module; passing the three vectors in from the
+caller.
+**Why:** the hand-written normal used in the first transfer implementation was `(0, sin i, cos i)`
+and its **sign was wrong**. For the basis `p = x̂`, `q = (0, cos i, sin i)` that
+`circularOrbitState` uses, `r × v` is `(0, −sin i, cos i)`. The consequence was not cosmetic: the
+normal component of the burn was mirrored, so the node list and the propagator disagreed about
+what the node meant, and every inclined departure was silently planned against the wrong plane.
+Two derivations of one geometry is how that happens; one function is how it stops.
+
+## D-021 — `TransferContext` takes the whole `CircularOrbitSpec`, phase included
+
+**Choice:** the context carries `orbit: CircularOrbitSpec`, not a separate `orbitPhaseRad`.
+**Alternatives:** altitude + inclination + a phase argument.
+**Why:** the phase is the same number `craftFromSpec` uses. Splitting it out lets a caller build a
+node for a craft sitting somewhere its own description does not put it, and the resulting burn
+would be at the right radius and the wrong place - the failure mode is invisible in a number and
+obvious in a picture nobody is looking at during a test.
+
+## D-022 — Node timing uses the craft's own accumulated phase
+
+**Choice:** `phaseAtRequest = orbit.phaseRad + n·(t_departure − t_epoch)`, then
+`shiftSeconds = wrapTo2Pi(plan.phaseRad − phaseAtRequest)/n`.
+**Alternatives:** use `plan.timeToBurnSeconds` directly (the phase from the epoch).
+**Why:** the solve's phase is measured from the epoch radial, but the craft is not there when the
+departure date arrives. Measured on a 314-day Earth-Mars cell at 300 km, the orbit has advanced
+3.1e4 rad, so the naive answer places the node at a phase unrelated to the one that was costed,
+and the flown trajectory is not the one the plot drew. The correct answer is a forward difference
+around a circle, which is why it is a `wrapTo2Pi` and not a subtraction.
+
+## D-023 — A below-surface periapsis is a warning on the node, not a refusal
+
+**Choice:** `periapsisBelowSurface` becomes a `below-surface` warning in `TransferNode.warnings`
+and is shown in the panel; the node is still created.
+**Alternatives:** refuse the departure; ignore the condition.
+**Why:** the arithmetic says the path is safe - the burn is outbound at radius `r`, the true
+anomaly is positive, and the radius only grows afterwards, so the propagated arc never enters the
+body (confirmed: the bundled mission reports no impact). But no real departure would be accepted
+with a periapsis inside the planet, so the condition is real. Refusing hides the geometry that
+produced it; silence lets a reader see "periapsis 5,893 km" beside "burn at 6,671 km" and conclude
+the code is broken.
+
+## D-024 — The mission is React state, not derived from the scenario
+
+**Choice:** `useState<CraftSpec | undefined>`, reseeded from the scenario on every switch.
+**Alternatives:** derive the mission from the selected scenario each render.
+**Why:** a planned departure writes a node into the mission, and a derived value cannot be
+written. Keeping the scenario as the seed and the state as the truth also makes the reset
+explicit: switching scenarios discards a planned node, which is what a scenario switch means.
+
+## D-025 — A departure past the horizon extends the plan, or is refused with a reason
+
+**Choice:** `applyDepartureNode` extends `horizonSeconds` to `burnTime + DEPARTURE_COAST_SECONDS`
+(one day) rather than dropping a node the propagation would not reach. It **refuses** N-body
+plans and anything past `MAX_DEPARTURE_HORIZON_DAYS = 1500`.
+**Alternatives:** leave the horizon alone and let the node be dropped; extend unconditionally.
+**Why:** `propagateTrajectory` drops burns after the horizon, so leaving it alone would list a
+burn the trajectory never makes - a panel contradicting its own picture. Extending
+unconditionally is worse in two specific ways: months of N-body integration at millisecond
+tolerances is far outside an interactive budget, and a 4000-day horizon of a 96-minute orbit is
+a wall of aliased dots. 1500 days covers every Earth-Mars window (780 d) and three Venus synodic
+periods.
+
+## D-026 — A planned departure replaces a node with the same id
+
+**Choice:** the id is `depart-YYYY-MM-DD`, derived from the cell's departure date; `withManeuver`
+filters out any node with that id before appending.
+**Alternatives:** append and let the user delete duplicates; generate a unique id per plan.
+**Why:** re-planning the same cell after changing a form field must be idempotent, or the user
+ends up with two identical burns at the same instant and a delta-v budget that counts both.
+Deriving the id from the date rather than from a counter also makes it deterministic across
+sessions, which is what a scenario file needs.
+
+## D-027 — The departure action acts on the clicked cell, not the hovered one
+
+**Choice:** clicking the plot selects a cell (`chosen`); the button acts on `chosen`, and the
+readout shows `hovered ?? chosen`.
+**Alternatives:** act on the hovered cell.
+**Why:** a pointer cannot rest on the plot and press a button below it. Moving to the button
+raises `pointerleave`, which clears the hover - so a hover-driven button is disabled exactly as
+the user reaches for it. Measured in the e2e suite before the fix: the button was disabled on
+every attempt. A click is a selection and survives the pointer leaving.
+
+## D-028 — The default departure window starts at the epoch, not at the year start
+
+**Choice:** `defaultPorkchopRequest` starts at `epochDateIso(epochUtc)` and runs to the end of the
+epoch year + 2.
+**Alternatives:** 1 January of the epoch year (the previous behaviour); a window centred on the
+epoch.
+**Why:** a departure window that begins in the past is a trap. The plot computes those cells (the
+Lambert solve does not know what "now" is) but none can become a manoeuvre node, because a node
+at a negative time does not exist. Measured on the 2026-11-18 epoch: a year-start window put 322
+of 365 departure columns in the past, **and the cheapest cell of the whole grid was one of them** -
+so the headline number of the default plot was unplannable. Starting at the epoch makes every
+column a candidate. The end date is unchanged, so the window still contains at least one Mars
+window (780 d) and three Venus windows (584 d).
+
+## D-029 — Sampling adequacy is a number in the panel, not a caveat in the docs
+
+**Choice:** `MissionPlan` carries `periodFractionPerSample` (fraction of an initial period per
+drawn sample) and `coastAliased`, with `ALIASED_PERIOD_FRACTION = 0.125`; `MissionPanel` shows a
+caveat when it trips.
+**Alternatives:** raise `MAX_TRAJECTORY_POINTS` so a long horizon stays dense; say nothing.
+**Why:** a planned departure extends a mission's horizon to hundreds of days while the parking
+orbit laps every 96 minutes, so a 735-day plan draws one sample per 2.77 orbits. The propagated
+states are exact; the **picture** is a star polygon. Raising the point cap is not available
+(4000 points over 735 days is still 0.44 of a period per sample, and the cap exists for the
+renderer's sake). Making it a number that appears only when it matters is the honest option:
+measured 0.010 for the bundled LEO raise (dense) and 2.772 for the planned departure (aliased).

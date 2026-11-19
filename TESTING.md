@@ -53,17 +53,20 @@ clock on screen advances" is an e2e test. The overlap is deliberately small.
 
 ## Known gotchas
 
-| Gotcha                          | Why                                                                  | What to do                                                            |
-| ------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| IEEE-754 subnormals             | A generator can produce values so small that relative error explodes | Exclude them in the generator                                         |
-| `-0` vs `+0`                    | `Object.is(-0, 0)` is false, so `toBe` fails                         | Use `toBeCloseTo`                                                     |
-| Element round trip near apsides | True anomaly is ill-conditioned there (~1.5e-8 relative)             | Bound the test accordingly, and say why in a comment                  |
-| WebGL canvas readback           | `readPixels` returns blank after compositing                         | Screenshot the element and decode the PNG in-page                     |
-| Clock readout assertions        | The clock is running, so any time-of-day assertion races             | Assert something that does not move (the epoch label), or pause first |
-| Dev server in a piped shell     | Background shells die when piped through `Select-Object`             | Let Playwright start the server itself                                |
-| 2D canvas in the sidebar        | Its lower half is below the fold at 1280x720, so `mouse.move` misses | `scrollIntoViewIfNeeded` before computing the hover point             |
-| `display: flex` on a container  | It beats the `hidden` attribute's UA `display: none`                 | Add an explicit `[hidden] { display: none }` rule                     |
-| A form option named like a body | `<option>Mars</option>` makes `getByText('Mars').first()` the option | Scope the locator to the region under test (`.body-list`)             |
+| Gotcha                            | Why                                                                                                        | What to do                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| IEEE-754 subnormals               | A generator can produce values so small that relative error explodes                                       | Exclude them in the generator                                         |
+| `-0` vs `+0`                      | `Object.is(-0, 0)` is false, so `toBe` fails                                                               | Use `toBeCloseTo`                                                     |
+| Element round trip near apsides   | True anomaly is ill-conditioned there (~1.5e-8 relative)                                                   | Bound the test accordingly, and say why in a comment                  |
+| WebGL canvas readback             | `readPixels` returns blank after compositing                                                               | Screenshot the element and decode the PNG in-page                     |
+| Clock readout assertions          | The clock is running, so any time-of-day assertion races                                                   | Assert something that does not move (the epoch label), or pause first |
+| Dev server in a piped shell       | Background shells die when piped through `Select-Object`                                                   | Let Playwright start the server itself                                |
+| 2D canvas in the sidebar          | Its lower half is below the fold at 1280x720, so `mouse.move` misses                                       | `scrollIntoViewIfNeeded` before computing the hover point             |
+| `display: flex` on a container    | It beats the `hidden` attribute's UA `display: none`                                                       | Add an explicit `[hidden] { display: none }` rule                     |
+| A form option named like a body   | `<option>Mars</option>` makes `getByText('Mars').first()` the option                                       | Scope the locator to the region under test (`.body-list`)             |
+| A hover that drives a button      | `pointerleave` clears it exactly as the user reaches the button                                            | Select on click, and act on the selection (D-027)                     |
+| Two axis ticks, one label         | A narrow range rounds two ticks to the same string, so `key={label}` duplicates                            | Key by position, not by text                                          |
+| Wall-clock assertions on a laptop | The CPU idles at 1.5 GHz of 2.2 GHz on battery, so a timing budget fails for reasons unrelated to the code | Compare measurements taken in the same clock state, or record both    |
 
 A fourth rule, learned the hard way in M5.3: **a test that hovers must also prove the hover
 survives.** Replacing a short hint with a tall list reflows the sidebar, which moves the plot
@@ -72,18 +75,27 @@ out from under the pointer, which clears the hover — the readout flickers betw
 frame of that oscillation. The regression test hovers once and then asserts the _same_ cell an
 idle 700 ms later; the fix was a fixed-height readout block that is always present.
 
+A fifth, from M5.4: **assert the invariant, not the sample that happened to satisfy it.** An e2e
+test pinned the cheapest porkchop window to `depart 2026-` because 2026 was where the cheapest
+cell fell. When the default window was moved to start at the epoch (D-028), the cheapest cell
+became the 2028 Mars window and the test failed while the app was more correct than before. The
+test now extracts the departure date and the scenario epoch and asserts the ordering between
+them, which is the property that actually matters (a past cell cannot become a node). A date
+literal in an assertion is usually a measurement wearing an invariant's clothes.
+
 ## Coverage
 
 `vitest` reports coverage over `src/core`, `src/sim` and `src/scenarios` only. `src/render` and
 `src/ui` are covered by e2e instead: a line-coverage number for a WebGL scene measures that
 lines ran, not that anything was drawn.
 
-The exception is `src/ui/porkchopView.ts`, which is pure and unit tested even though it lives in
-`src/ui`. The rule is not "which folder" but "can it be tested without a browser": the colour
-ramp, the image buffer and its orientation, the pointer-to-cell mapping, the axis ticks and the
-hover readout are all arithmetic, so they are asserted directly and the canvas keeps only the
-`putImageData` call. That canvas is 2D, so its e2e test reads it back with `getImageData`
-directly — the screenshot-decode path below is only needed for the WebGL view.
+The exception is `src/ui/porkchopView.ts` and `src/ui/transferView.ts`, which are pure and unit
+tested even though they live in `src/ui`. The rule is not "which folder" but "can it be tested
+without a browser": the colour ramp, the image buffer and its orientation, the pointer-to-cell
+mapping, the axis ticks, the hover readout, the cell-to-node conversion and the horizon decision
+are all arithmetic, so they are asserted directly and the canvas keeps only the `putImageData`
+call. That canvas is 2D, so its e2e test reads it back with `getImageData` directly — the
+screenshot-decode path below is only needed for the WebGL view.
 
 Note on screenshots: the agent building this cannot view images, so a screenshot is never
 evidence in itself. `scripts/inspect-screenshot.mjs <file>` decodes one and reports its

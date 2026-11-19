@@ -88,7 +88,13 @@ delete one. Those items stay unticked rather than being checked off on the stren
       and form), 82 unit tests, 9 e2e tests. The panel starts collapsed (D-019). Cost is the
       v-infinity sum, not parking-orbit delta-v (D-018, PHYSICS.md §11.2). Screenshot
       `screenshots/m5-porkchop.png`, measured by `scripts/inspect-screenshot.mjs`.
-- [ ] M5.4 Transfer -> maneuver-node workflow
+- [x] M5.4 Transfer -> maneuver-node workflow
+      — `core/transfer/departure.ts` (closed-form departure burn + phase search) and
+      `ui/transferView.ts` (cell -> node, timing shift, warnings, horizon extension),
+      `departureAsymptote` in `core/transfer/porkchop.ts`, `circularOrbitFrame` in `sim/craft.ts`,
+      `periodFractionPerSample` in `ui/missionView.ts`. 73 new unit tests, 6 new e2e tests.
+      Clicked-cell selection, epoch-anchored default window (D-028), aliasing caveat (D-029).
+      PHYSICS.md §12, DECISIONS D-020—D-029.
 - [ ] M5.5 GTO and Earth-Mars scenarios
 
 ## M6 — Ground track and Moon

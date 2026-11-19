@@ -46,6 +46,8 @@ violation is a lint error.
 | `ephemeris/nbody.ts`       | Restricted N-body acceleration, dominant-body selection                  |
 | `transfer/transfers.ts`    | Hohmann, bi-elliptic, plane change                                       |
 | `transfer/lambert.ts`      | Lambert's problem, single revolution, universal variables                |
+| `transfer/porkchop.ts`     | Grid of Lambert costs over departure date × flight time, cell asymptotes |
+| `transfer/departure.ts`    | Closed-form burn from a parking orbit onto a given hyperbola             |
 
 Everything here is a pure function unless it is documented otherwise. Orbits are parameterised
 by time, not by "now".
@@ -118,9 +120,27 @@ that nothing which could be wrong lives inside it. The buffer is one pixel per g
 browser scales it, which makes the painting a single call and the orientation a testable fact
 (see PHYSICS.md §11.4).
 
+`transferView.ts` is the join between the plot and the mission, and it is a view-model for the
+same reason: the frame conversion, the cost conversion, the timing shift and the horizon decision
+are arithmetic that must be asserted without a browser. It sits above `src/sim` because it needs
+`circularOrbitFrame` and the `Maneuver` type, and `core/transfer/departure.ts` sits below both
+because it needs nothing but vectors.
+
+The split between the two is where the _question_ changes. `departure.ts` answers "what burn
+leaves this orbit on that asymptote, and where on the orbit" — a physics question with a
+physics answer. `transferView.ts` answers "what node does that make, in this mission, on this
+scenario's clock, and does it fit" — a scheduling question that has to know about epochs,
+horizons and node ids. Putting the second inside the first would make the physics module depend
+on the mission's bookkeeping; putting it inside `App.tsx` would make it untestable.
+
 `core/transfer/porkchop.ts` is the grid itself: it must not import `src/sim` (the dependency
 direction is sim → core), so the central-difference body velocity is duplicated rather than
 shared. That duplication is deliberate and commented in both places.
+
+The parking-orbit frame is defined once, as `circularOrbitFrame` in `sim/craft.ts`. The transfer
+code consumes it rather than deriving the same triad again — a second derivation is how the orbit
+normal ended up with the wrong sign (D-020), and the failure was a mirrored burn rather than a
+crash.
 
 ## Frame convention
 

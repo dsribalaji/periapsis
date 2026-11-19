@@ -320,6 +320,81 @@ function bodyVelocity(id: BodyId, jdTt: number): Vec3 {
   return { x: (b.x - a.x) * k, y: (b.y - a.y) * k, z: (b.z - a.z) * k };
 }
 
+/** Where a chosen cell says the craft must leave its departure body, and how fast. */
+export interface CellAsymptote {
+  /**
+   * Unit direction of the departure body-relative velocity at infinity, in the same
+   * physics-frame axes as every other vector here.
+   *
+   * The speed is measured relative to the body, so the vector is body-centric even though it
+   * is expressed in frame coordinates: `v1 - v_body`. A parking orbit around that body can
+   * therefore use it directly as an aim direction with no frame rotation. That equality is
+   * the whole reason a porkchop cell can turn into a departure burn at all.
+   */
+  readonly direction: Vec3;
+  /** Magnitude of that velocity, m/s. Equals the cell's `vInfDeparture`. */
+  readonly vInf: number;
+  /** Body the craft leaves. Needed so a caller can check the craft is parked there. */
+  readonly departureBody: BodyId;
+  /** Body the transfer arrives at, for labelling. */
+  readonly arrivalBody: BodyId;
+  /** TT JD of departure. */
+  readonly departureJdTt: number;
+  /** TT JD of arrival. */
+  readonly arrivalJdTt: number;
+  /** Angle swept about the Sun, degrees. */
+  readonly transferAngleDeg: number;
+}
+
+/**
+ * Re-solves one cell to recover the departure *direction*, which the grid does not store.
+ *
+ * A grid holds 10,000 magnitudes and no vectors; keeping the vectors would triple its memory
+ * for a value nobody reads until a cell is chosen. One Lambert solve on demand is cheaper
+ * than storing them, and it cannot disagree with the grid because it is the same call on the
+ * same inputs.
+ *
+ * Returns null for a cell with no converged solution.
+ */
+export function departureAsymptote(
+  grid: Porkchop,
+  column: number,
+  row: number,
+): CellAsymptote | null {
+  if (!Number.isInteger(column) || !Number.isInteger(row)) return null;
+  if (column < 0 || column >= grid.columns || row < 0 || row >= grid.rows) return null;
+
+  const index = cellIndex(grid, column, row);
+  const value = grid.totalDeltaV[index]!;
+  if (!Number.isFinite(value)) return null;
+
+  const departureJdTt = grid.departureJdTt[column]!;
+  const timeOfFlightDays = grid.timeOfFlightDays[row]!;
+  const arrivalJdTt = departureJdTt + timeOfFlightDays;
+
+  const solution = solveLambert(
+    bodyPosition(grid.departureBody, departureJdTt),
+    bodyPosition(grid.arrivalBody, arrivalJdTt),
+    timeOfFlightDays * SECONDS_PER_DAY,
+    BODIES.sun.mu,
+  );
+  if (!solution.converged) return null;
+
+  const excess = sub(solution.v1, bodyVelocity(grid.departureBody, departureJdTt));
+  const vInf = length(excess);
+  if (!(vInf > 0)) return null;
+
+  return {
+    direction: { x: excess.x / vInf, y: excess.y / vInf, z: excess.z / vInf },
+    vInf,
+    departureBody: grid.departureBody,
+    arrivalBody: grid.arrivalBody,
+    departureJdTt,
+    arrivalJdTt,
+    transferAngleDeg: grid.transferAngleDeg[index]!,
+  };
+}
+
 /** Local clamp, so this module imports nothing beyond the vector helpers it needs. */
 function clamp(x: number, lo: number, hi: number): number {
   return x < lo ? lo : x > hi ? hi : x;

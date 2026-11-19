@@ -74,7 +74,14 @@ const MAX_WINDOW_DAYS = 4000;
 const MAX_SIZE = 200;
 
 /**
- * A sensible first window for a given epoch: the year of the epoch through two years later.
+ * A sensible first window for a given epoch: from the epoch through two years later.
+ *
+ * Starting at the epoch rather than at the first of January is deliberate. A departure window
+ * that begins in the past is a trap: the plot happily computes those cells (the Lambert solve
+ * does not know what "now" is) but none of them can become a manoeuvre node, because a node at
+ * a negative time does not exist. Measured on the 2026-11-18 epoch, a year-start window put 322
+ * of 365 departure columns in the past and the *cheapest* cell of the whole grid was one of
+ * them. Starting at the epoch makes every column plannable.
  *
  * Three years is chosen rather than a synodic period because it contains at least one Earth-
  * Mars window (780 d) and three of Venus's (584 d), so the default answer is interesting for
@@ -85,12 +92,17 @@ export function defaultPorkchopRequest(epochUtc: string): PorkchopRequest {
   return {
     departureBody: 'earth',
     arrivalBody: 'mars',
-    departureStartIso: `${year}-01-01`,
+    departureStartIso: epochDateIso(epochUtc),
     departureEndIso: `${year + 2}-12-31`,
     minTofDays: 150,
     maxTofDays: 420,
     size: 100,
   };
+}
+
+/** The civil date part of an ISO instant, which is the finest a departure column resolves. */
+export function epochDateIso(epochUtc: string): string {
+  return isoUtcFromJd(jdFromIsoUtc(epochUtc)).slice(0, 10);
 }
 
 /** True for a `YYYY-MM-DD` string that parses as a supported date. */

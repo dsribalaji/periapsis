@@ -41,6 +41,35 @@ import {
 export interface PorkchopPanelProps {
   /** Scenario epoch, used only to seed the default departure window. */
   readonly epochUtc: string;
+  /**
+   * Called with a chosen cell's column and row when the user asks to plan a departure.
+   *
+   * The panel does not build the node itself: it knows the grid, not the craft. Handing the
+   * cell back keeps the panel presentational and leaves the craft-specific arithmetic in
+   * `App`, where the mission lives.
+   */
+  readonly onPlanDeparture?: (column: number, row: number) => void;
+  /**
+   * Why planning is not possible at all in this scenario, or null/absent when it is.
+   *
+   * Distinct from `departureIssue`, which reports the *last attempt*: this is a standing
+   * condition (no spacecraft to burn from), so the control is disabled and the reason is shown
+   * beside it rather than left for the user to discover by pressing a dead button.
+   */
+  readonly departureUnavailableReason?: string | null;
+  /**
+   * Called with the grid after every successful compute.
+   *
+   * The app needs the grid to turn a cell into a departure asymptote, and it must be the
+   * *same* grid the user hovered: re-solving a cell against a different window would put the
+   * node somewhere the plot never showed. Publishing the grid is how that is guaranteed
+   * rather than hoped for.
+   */
+  readonly onGrid?: (grid: Porkchop) => void;
+  /** Why the last attempt to plan a departure failed, or null. */
+  readonly departureIssue?: string | null;
+  /** A one-line summary of the node that was created, or null. */
+  readonly departureNote?: string | null;
 }
 
 interface Result {
@@ -48,10 +77,23 @@ interface Result {
   readonly request: PorkchopRequest;
 }
 
-export function PorkchopPanel({ epochUtc }: PorkchopPanelProps): React.JSX.Element {
+export function PorkchopPanel({
+  epochUtc,
+  onPlanDeparture,
+  onGrid,
+  departureIssue = null,
+  departureNote = null,
+  departureUnavailableReason = null,
+}: PorkchopPanelProps): React.JSX.Element {
   const [request, setRequest] = useState<PorkchopRequest>(() => defaultPorkchopRequest(epochUtc));
   const [result, setResult] = useState<Result | null>(null);
+  // The cell under the pointer, for the readout: transient.
   const [hovered, setHovered] = useState<CellReadout | null>(null);
+  // The cell the user *clicked*, which persists. This exists because a pointer cannot both
+  // rest on the plot and press a button below it: leaving the canvas clears the hover, which
+  // would disable the departure action exactly as the user reached for it. A click is a
+  // selection, and a selection outlives the pointer.
+  const [chosen, setChosen] = useState<CellReadout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -67,6 +109,7 @@ export function PorkchopPanel({ epochUtc }: PorkchopPanelProps): React.JSX.Eleme
     setRequest(defaultPorkchopRequest(epochUtc));
     setResult(null);
     setHovered(null);
+    setChosen(null);
   }, [epochUtc]);
 
   const issues = useMemo(() => validatePorkchopRequest(request), [request]);
@@ -78,14 +121,16 @@ export function PorkchopPanel({ epochUtc }: PorkchopPanelProps): React.JSX.Eleme
       const grid = computePorkchop(requestToOptions(request));
       setResult({ grid, request });
       setHovered(null);
+      setChosen(null);
       setError(null);
+      onGrid?.(grid);
     } catch (err) {
       // The panel shows the message rather than throwing into React's error boundary: a bad
       // date window must not take down the whole app.
       setError(err instanceof Error ? err.message : String(err));
       setResult(null);
     }
-  }, [canCompute, request]);
+  }, [canCompute, onGrid, request]);
 
   // Paint whenever the grid changes. The buffer is built at cell resolution and stretched by
   // CSS, so the drawing code is a `putImageData` and the browser does the scaling.
@@ -117,7 +162,27 @@ export function PorkchopPanel({ epochUtc }: PorkchopPanelProps): React.JSX.Eleme
     [result],
   );
 
+  const handlePlotClick = useCallback(
+    (event: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!result) return;
+      const box = event.currentTarget.getBoundingClientRect();
+      if (box.width <= 0 || box.height <= 0) return;
+      const point = cellFromFraction(
+        result.grid,
+        (event.clientX - box.left) / box.width,
+        (event.clientY - box.top) / box.height,
+      );
+      setChosen(readoutAt(result.grid, point.column, point.row));
+    },
+    [result],
+  );
+
   const clearHover = useCallback(() => setHovered(null), []);
+
+  // While the pointer is on the plot the readout follows it; once it leaves, the readout falls
+  // back to the clicked selection, so the numbers describing the cell being planned from do not
+  // vanish the moment the pointer moves to the button.
+  const active = hovered ?? chosen;
 
   const update = <K extends keyof PorkchopRequest>(key: K, value: PorkchopRequest[K]) =>
     setRequest((previous) => ({ ...previous, [key]: value }));
@@ -272,8 +337,10 @@ export function PorkchopPanel({ epochUtc }: PorkchopPanelProps): React.JSX.Eleme
           <>
             <div className="porkchop-figure">
               <div className="porkchop-yaxis" aria-hidden="true">
-                {tofTicks(result.grid, 4).map((tick) => (
-                  <span key={`t${tick.label}`} style={{ bottom: `${tick.fraction * 100}%` }}>
+                {/* Keyed by position, not label: a narrow flight-time window can give two
+                    ticks the same rounded label, and React rejects a duplicate key. */}
+                {tofTicks(result.grid, 4).map((tick, i) => (
+                  <span key={i} style={{ bottom: `${tick.fraction * 100}%` }}>
                     {tick.label}
                   </span>
                 ))}
@@ -287,13 +354,14 @@ export function PorkchopPanel({ epochUtc }: PorkchopPanelProps): React.JSX.Eleme
                   aria-label={summary ?? 'Porkchop plot: no transfer found in this window.'}
                   onPointerMove={handlePointer}
                   onPointerLeave={clearHover}
+                  onClick={handlePlotClick}
                 />
-                {hovered && (
+                {active && (
                   <div
                     className="porkchop-marker"
                     style={{
-                      left: `${fractionOfCell(result.grid, hovered.column, hovered.row).x * 100}%`,
-                      top: `${fractionOfCell(result.grid, hovered.column, hovered.row).y * 100}%`,
+                      left: `${fractionOfCell(result.grid, active.column, active.row).x * 100}%`,
+                      top: `${fractionOfCell(result.grid, active.column, active.row).y * 100}%`,
                     }}
                   />
                 )}
@@ -301,8 +369,8 @@ export function PorkchopPanel({ epochUtc }: PorkchopPanelProps): React.JSX.Eleme
             </div>
 
             <div className="porkchop-xaxis" aria-hidden="true">
-              {departureTicks(result.grid, 4).map((tick) => (
-                <span key={`d${tick.label}`} style={{ left: `${tick.fraction * 100}%` }}>
+              {departureTicks(result.grid, 4).map((tick, i) => (
+                <span key={i} style={{ left: `${tick.fraction * 100}%` }}>
                   {tick.label}
                 </span>
               ))}
@@ -316,6 +384,58 @@ export function PorkchopPanel({ epochUtc }: PorkchopPanelProps): React.JSX.Eleme
             </p>
 
             {/*
+              The departure action lives here rather than in a separate panel because the cell
+              is what it acts on. Asking the user to retype a date into a different tool would
+              lose the only information the plot produced.
+
+              It acts on the *clicked* cell, not the hovered one. A pointer cannot rest on the
+              plot and press this button at the same time: moving to the button raises
+              `pointerleave`, which clears the hover and would disable the button exactly as it
+              was being reached for. A click is a selection and survives the pointer leaving.
+            */}
+            <div className="row">
+              <button
+                onClick={() => {
+                  if (!chosen || !onPlanDeparture) return;
+                  onPlanDeparture(chosen.column, chosen.row);
+                }}
+                disabled={!chosen || !onPlanDeparture || departureUnavailableReason !== null}
+                data-testid="porkchop-plan-departure"
+                title={
+                  departureUnavailableReason ??
+                  (chosen
+                    ? 'Turn the clicked cell into a manoeuvre node at the departure body'
+                    : 'Click a cell in the plot first')
+                }
+              >
+                Plan departure from this cell
+              </button>
+            </div>
+            {departureUnavailableReason ? (
+              <p className="caveat" data-testid="porkchop-departure-unavailable">
+                {departureUnavailableReason}
+              </p>
+            ) : (
+              <p className="hint">
+                {chosen
+                  ? 'The cell sets the departure date and the aim; the node is the burn from the ' +
+                    "craft's parking orbit, which is not the same number as the cell's cost."
+                  : 'Click a cell in the plot to choose it, then plan the departure from it.'}
+              </p>
+            )}
+
+            {departureIssue && (
+              <p className="caveat" data-testid="porkchop-departure-issue">
+                {departureIssue}
+              </p>
+            )}
+            {departureNote && (
+              <p className="hint" data-testid="porkchop-departure-note">
+                {departureNote}
+              </p>
+            )}
+
+            {/*
               The readout block keeps a fixed height and is always present, with dashes when
               nothing is hovered. This is not cosmetic: replacing a short hint with a tall list
               reflows the sidebar, which moves the plot out from under the pointer, which clears
@@ -324,23 +444,23 @@ export function PorkchopPanel({ epochUtc }: PorkchopPanelProps): React.JSX.Eleme
             */}
             <dl className="readout porkchop-readout" data-testid="porkchop-readout">
               <dt>Depart</dt>
-              <dd>{hovered ? hovered.departureIso : '--'}</dd>
+              <dd>{active ? active.departureIso : '--'}</dd>
               <dt>Arrive</dt>
-              <dd>{hovered ? hovered.arrivalIso : '--'}</dd>
+              <dd>{active ? active.arrivalIso : '--'}</dd>
               <dt>Flight time</dt>
-              <dd>{hovered ? `${hovered.timeOfFlightDays.toFixed(1)} d` : '--'}</dd>
+              <dd>{active ? `${active.timeOfFlightDays.toFixed(1)} d` : '--'}</dd>
               <dt>v-inf total</dt>
-              <dd>{hovered ? `${(hovered.totalDeltaV / 1000).toFixed(2)} km/s` : '--'}</dd>
+              <dd>{active ? `${(active.totalDeltaV / 1000).toFixed(2)} km/s` : '--'}</dd>
               <dt>Departure</dt>
-              <dd>{hovered ? `${(hovered.vInfDeparture / 1000).toFixed(2)} km/s` : '--'}</dd>
+              <dd>{active ? `${(active.vInfDeparture / 1000).toFixed(2)} km/s` : '--'}</dd>
               <dt>Arrival</dt>
-              <dd>{hovered ? `${(hovered.vInfArrival / 1000).toFixed(2)} km/s` : '--'}</dd>
+              <dd>{active ? `${(active.vInfArrival / 1000).toFixed(2)} km/s` : '--'}</dd>
               <dt>C3</dt>
-              <dd>{hovered ? `${hovered.c3.toFixed(1)} km²/s²` : '--'}</dd>
+              <dd>{active ? `${active.c3.toFixed(1)} km²/s²` : '--'}</dd>
               <dt>Sweep angle</dt>
-              <dd>{hovered ? `${hovered.transferAngleDeg.toFixed(1)}°` : '--'}</dd>
+              <dd>{active ? `${active.transferAngleDeg.toFixed(1)}°` : '--'}</dd>
               <dt>Plane tilt</dt>
-              <dd>{hovered ? `${hovered.planeTiltDeg.toFixed(1)}°` : '--'}</dd>
+              <dd>{active ? `${active.planeTiltDeg.toFixed(1)}°` : '--'}</dd>
             </dl>
 
             <p className="caveat">
