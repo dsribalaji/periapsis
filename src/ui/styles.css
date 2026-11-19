@@ -101,6 +101,8 @@ body,
 
 .viewport canvas {
   display: block;
+  /* The scene handles drag and pinch itself; without this the browser scrolls or zooms the page. */
+  touch-action: none;
 }
 
 .sidebar {
@@ -216,6 +218,35 @@ input:focus-visible {
 
 .toggles {
   gap: 14px;
+}
+
+details.section > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+details.section > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.section > summary::before {
+  content: '▸';
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+details.section[open] > summary::before {
+  content: '▾';
+}
+
+.subhead {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  margin: 6px 0 4px;
 }
 
 .toggle {
@@ -433,6 +464,45 @@ input[type='text'] {
   min-width: 0;
 }
 
+.node-row .node-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.node-row .node-actions button {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.node-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: #11151d;
+}
+
+.node-form .field {
+  flex: none;
+}
+
+.node-form .row .field {
+  flex: 1 1 0;
+}
+
+.field-error {
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.field > input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
 .issue-list {
   margin: 0;
   padding-left: 16px;
@@ -616,9 +686,9 @@ input[type='text'] {
 @media (prefers-reduced-motion: reduce) {
   /*
    * The blanket rule is the important half: any transition or animation added later is off by
-   * default for a user who asked for that, without whoever adds it having to remember. The app's
-   * own motion is all in the 3D view, which is drag-driven rather than animated: a camera move
-   * happens on click or keypress and completes immediately, so there is nothing to disable there.
+   * default for a user who asked for that, without whoever adds it having to remember. The 3D
+   * view's one animation, the camera flying to a body, reads the same preference in `scene.ts`
+   * and jumps instead.
    * The clock advancing is a simulation, not a transition, and stopping it would break the
    * product rather than accommodate the preference - which is why it is not affected here.
    */

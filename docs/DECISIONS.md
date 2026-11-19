@@ -859,6 +859,37 @@ cross product along h-hat, which also removes the hand-written sign patches. The
 is pinned as its own test (now ~1e-16), and the property passed 40,000 runs locally after the
 change.
 
+## D-050 - Small bodies are drawn and measured, but are not `BODIES`
+
+Asteroids and comets could have been added to `BODIES` with a `mu` of their own. They were kept in
+a separate catalogue (`smallBodies.ts`) instead, because `BODIES` feeds the restricted N-body
+force model, the porkchop body list and the sphere-of-influence search, and a 500 m asteroid must
+not quietly become a gravitating body or a porkchop target in all of those.
+
+Their orbits are JPL's osculating elements propagated as pure two-body Kepler orbits. That is
+exact at the element epoch and drifts away from it, by arcminutes per decade in the main belt and
+much more for a comet near Jupiter, so the panel states each epoch and its distance from the date
+shown rather than presenting the position as authoritative. Checked against real events:
+Apophis within 0.01 AU of Earth on 13 April 2029, Halley at perihelion on 9 February 1986, Pluto
+at perihelion in September 1989.
+
+Only the selected small body draws its orbit. With all nineteen drawn, the inner system was a
+tangle of ellipses that buried the planets' orbits, which are the reference everything else is
+read against.
+
+## D-051 - Share links live in the URL fragment and name bundled scenarios only
+
+A link carries the scenario id, the instant, the selected target, the warp, the layout and the
+camera, in the fragment (`#v=1&...`). The fragment is never sent to a server, so "no data leaves
+this machine" stays true when the page is hosted.
+
+A link cannot carry a scenario opened from a file or a burn designed in the session: those are
+user data with their own export (the scenario file), and putting them in a URL makes links long,
+fragile and silently lossy. Parsing is total: a malformed field is dropped, never thrown, and
+the app falls back to its normal boot for whatever is missing. The fragment is cleared once
+read, so a later reload opens what the person has moved on to, and pasting a link into an
+already-open tab reloads so it is read like a first visit.
+
 ## D-049 - The selection reticle, labels and the follow camera are scene concerns
 
 Three small UI calls that came with the true-scale renderer:

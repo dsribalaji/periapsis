@@ -15,8 +15,9 @@ Snapshot of where the build actually stands. Updated at the end of every iterati
 
 ## Verified status
 
-Last full run: `npm run verify` and `npx playwright test` (2026-11-20), on the uncommitted
-true-scale renderer on top of `v1.0.0`.
+Last full run: `npm run verify` and `npx playwright test` (2026-11-20), after adding small
+bodies, the node editor, share links and pinch-to-zoom (D-050, D-051) on top of the true-scale
+renderer.
 
 The true-scale renderer (ADR-0008, D-047 to D-049) replaced the 282x body exaggeration that drew
 the Moon next to the Sun. It adds orbit paths, IAU spin axes, a follow camera and a schema-2
@@ -30,11 +31,11 @@ taken on a quieter machine and are not directly comparable to today's.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 691 tests / 31 files                               |
+| Unit tests (`vitest run`)   | PASS, 728 tests / 35 files                               |
 | Format (`prettier --check`) | PASS                                                     |
-| Build (`vite build`)        | PASS, 900.28 kB JS (248.59 kB gzip)                      |
+| Build (`vite build`)        | PASS, 921.94 kB JS (256.20 kB gzip)                      |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
-| E2E (`npx playwright test`) | PASS, 62 tests against the real app in headless Chromium |
+| E2E (`npx playwright test`) | PASS, 71 tests against the real app in headless Chromium |
 
 All six were run, not inferred. M8.1 also proved the clean-install path: a fresh `git clone` of
 this repository into an empty directory, `npm ci` from the lockfile (201 packages, 0
@@ -259,26 +260,24 @@ Entry points: `index.html`, `src/main.tsx`, `e2e/shell.spec.ts`, `playwright.con
 `scripts/inspect-screenshot.mjs` (decodes a screenshot and reports measurable facts; the agent
 cannot view images, so a screenshot is only ever "measured", never "looked at").
 
-Not yet written: the maneuver-node _editor_ (nodes are shown and marked applied, and one can now
-be created from a porkchop cell, but there is no edit/delete control yet - `leo-raise` carries its
-node as scenario data), arrival/capture burns, and a runtime free-return _solver_ (the scenario
-replays a measured trajectory rather than searching for one).
+Not yet written: arrival/capture burns, and a runtime free-return _solver_ (the scenario replays
+a measured trajectory rather than searching for one).
 
 ## Milestones
 
-| Milestone                 | Status                                                           |
-| ------------------------- | ---------------------------------------------------------------- |
-| M0 scaffold               | done                                                             |
-| M1 physics foundation     | done                                                             |
-| M2 N-body + solar system  | done                                                             |
-| M3 3D shell               | done (M3.1-M3.6)                                                 |
-| M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
-| M5 mission planning       | done (M5.1–M5.5)                                                 |
-| M6 ground track + Moon    | done (M6.1 physics, M6.2 panel, M6.3 free return)                |
-| M7 scenarios + polish     | done (M7.1–M7.4)                                                 |
-| M8 hardening              | done (M8.1–M8.4), v1.0.0 tagged locally                          |
-| Visual pass (post-v1.0.0) | done: textures, wider track lines, pair framing                  |
-| True-scale renderer       | done, uncommitted: ADR-0008, D-047 to D-049                      |
+| Milestone                 | Status                                            |
+| ------------------------- | ------------------------------------------------- |
+| M0 scaffold               | done                                              |
+| M1 physics foundation     | done                                              |
+| M2 N-body + solar system  | done                                              |
+| M3 3D shell               | done (M3.1-M3.6)                                  |
+| M4 spacecraft + maneuvers | done, including the node editor (M4.2)            |
+| M5 mission planning       | done (M5.1–M5.5)                                  |
+| M6 ground track + Moon    | done (M6.1 physics, M6.2 panel, M6.3 free return) |
+| M7 scenarios + polish     | done (M7.1–M7.4)                                  |
+| M8 hardening              | done (M8.1–M8.4), v1.0.0 tagged locally           |
+| Visual pass (post-v1.0.0) | done: textures, wider track lines, pair framing   |
+| True-scale renderer       | done, uncommitted: ADR-0008, D-047 to D-049       |
 
 ## Known limitations carried forward
 
@@ -298,9 +297,9 @@ replays a measured trajectory rather than searching for one).
   its real size. The Moon is hidden until it separates from Earth on screen. Surface textures
   are procedural and plausible rather than real — Earth's continents are noise, not coastlines.
 - Drag-to-orbit and wheel zoom are wired to pointer events on the canvas, with pointer
-  capture and drag-versus-click suppression so orbiting never reselects a body. There is no
-  touch gesture handler beyond what pointer events give for free: one-finger drag orbits,
-  but pinch-to-zoom is not implemented.
+  capture and drag-versus-click suppression so orbiting never reselects a body. One finger
+  orbits and two fingers pinch to zoom; a pinch is never also a click. Touch has been exercised
+  only through the pointer-event code paths, not on a physical phone.
 - A spacecraft placed exactly at a body's centre makes the restricted N-body field singular:
   `rk45Step` throws `step-size control failed to converge` rather than returning a non-finite
   state. Not guarded in v1; tests offset the craft 90° in heliocentric longitude.
@@ -316,9 +315,11 @@ replays a measured trajectory rather than searching for one).
   why a 53° orbit reaches 76.44° of latitude on the map: 53 + 23.44. That is the datum, not a
   defect, but it means the scenario's stated inclination and the map's latitude range will never
   agree and both are correct.
-- Maneuver nodes are displayed and marked applied as the clock passes them, and one can now be
-  created from a porkchop cell, but there is no edit or delete control yet; other nodes are
-  scenario data. M4.2's UI half stays open in PLAN.md.
+- Maneuver nodes can be added, edited and deleted in the mission panel. Edits are kept in the
+  downloaded scenario file but not in the browser's remembered scenario, which stores the
+  scenario as chosen (D-051 explains why links do not carry them either).
+- Small bodies (D-050) are two-body orbits from JPL elements: exact at each element epoch and
+  drifting away from it. They have no gravity and are not porkchop targets.
 - **Porkchop cost is the sum of the two v-infinity speeds, not parking-orbit delta-v.** The
   Oberth effect is omitted, so the plot ranks windows correctly (Spearman ρ ≥ 0.9997 on the
   grids measured, and the parking-orbit optimum landed in the same cell every time) while the
