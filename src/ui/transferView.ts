@@ -369,7 +369,7 @@ export function withManeuver(craft: CraftSpec, maneuver: Maneuver): CraftSpec {
  * Coast drawn after a planned departure, seconds: one day.
  *
  * A hyperbola with a 3 km/s excess speed has left the near-Earth region by then (2.6e8 m,
- * about 40 Earth radii at the scene's exaggeration), which is what makes the post-burn leg
+ * about 40 Earth radii), which is what makes the post-burn leg
  * visible as an escape rather than as a kink. Longer would draw a tail the envelope clips
  * anyway, at the cost of sampling density everywhere else.
  */

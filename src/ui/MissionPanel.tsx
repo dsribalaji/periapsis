@@ -12,15 +12,36 @@
  * when it is still cheap to fix.
  */
 
+import { useState } from 'react';
 import type { MissionPlan, MissionProgress } from './missionView.js';
+import type { Maneuver } from '../sim/maneuver.js';
+import { draftFromNode, newDraft, type DraftIssue, type NodeDraft } from './nodeEditor.js';
 
 export interface MissionPanelProps {
   readonly plan: MissionPlan;
   readonly progress: MissionProgress | null;
   readonly testid?: string;
+  /** The raw nodes, for pre-filling the editor. Omit to make the panel read-only. */
+  readonly maneuvers?: readonly Maneuver[];
+  /** Applies a draft; returns the problems, or an empty list when it was accepted. */
+  readonly onApplyDraft?: (draft: NodeDraft) => readonly DraftIssue[];
+  readonly onDeleteNode?: (id: string) => void;
+  /** Simulation seconds now, so a new node defaults to "a little after now". */
+  readonly nowSeconds?: number;
 }
 
-export function MissionPanel({ plan, progress, testid }: MissionPanelProps): React.JSX.Element {
+export function MissionPanel({
+  plan,
+  progress,
+  testid,
+  maneuvers,
+  onApplyDraft,
+  onDeleteNode,
+  nowSeconds = 0,
+}: MissionPanelProps): React.JSX.Element {
+  const editable = Boolean(maneuvers && onApplyDraft && onDeleteNode);
+  const [draft, setDraft] = useState<NodeDraft | null>(null);
+  const [issues, setIssues] = useState<readonly DraftIssue[]>([]);
   const overBudget = plan.remainingDeltaV < 0;
   const radius = progress?.radius ?? null;
   const altitude = progress?.altitude ?? null;
@@ -106,17 +127,180 @@ export function MissionPanel({ plan, progress, testid }: MissionPanelProps): Rea
                 <span className="node-dv">{n.magnitude.toFixed(0)} m/s</span>
                 <span className="node-time">{formatClock(n.timeSeconds)}</span>
                 <span className="node-frame">{n.frame === 'local' ? 'local' : 'inertial'}</span>
+                {editable && (
+                  <span className="node-actions">
+                    <button
+                      type="button"
+                      aria-label={`Edit ${n.label}`}
+                      onClick={() => {
+                        const m = maneuvers?.find((x) => x.id === n.id);
+                        if (m) {
+                          setDraft(draftFromNode(m));
+                          setIssues([]);
+                        }
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${n.label}`}
+                      onClick={() => {
+                        onDeleteNode?.(n.id);
+                        if (draft?.id === n.id) setDraft(null);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </span>
+                )}
               </div>
             );
           })}
         </div>
       )}
+
+      {editable && !draft && (
+        <div className="row">
+          <button
+            type="button"
+            data-testid="node-add"
+            onClick={() => {
+              // A round minute after now: a burn at exactly "now" would already be in the past
+              // by the time the form is filled in on a running clock.
+              setDraft(newDraft(Math.ceil((nowSeconds + 60) / 60) * 60));
+              setIssues([]);
+            }}
+          >
+            Add a burn
+          </button>
+        </div>
+      )}
+
+      {editable && draft && (
+        <form
+          className="node-form"
+          data-testid="node-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const found = onApplyDraft?.(draft) ?? [];
+            setIssues(found);
+            if (found.length === 0) setDraft(null);
+          }}
+        >
+          <h3 className="subhead">{draft.id ? 'Edit burn' : 'New burn'}</h3>
+          <DraftField
+            label="Label"
+            field="label"
+            draft={draft}
+            issues={issues}
+            onChange={setDraft}
+            placeholder="optional"
+          />
+          <DraftField
+            label="Time (T+)"
+            field="time"
+            draft={draft}
+            issues={issues}
+            onChange={setDraft}
+            placeholder="h:mm:ss or 2d 03:00:00"
+          />
+          <label className="field">
+            <span>Frame</span>
+            <select
+              value={draft.frame}
+              onChange={(e) =>
+                setDraft({ ...draft, frame: e.target.value === 'inertial' ? 'inertial' : 'local' })
+              }
+            >
+              <option value="local">Local (prograde / normal / radial)</option>
+              <option value="inertial">Inertial (x / y / z)</option>
+            </select>
+          </label>
+          <div className="row">
+            <DraftField
+              label={draft.frame === 'local' ? 'Prograde m/s' : 'x m/s'}
+              field="a"
+              draft={draft}
+              issues={issues}
+              onChange={setDraft}
+            />
+            <DraftField
+              label={draft.frame === 'local' ? 'Normal m/s' : 'y m/s'}
+              field="b"
+              draft={draft}
+              issues={issues}
+              onChange={setDraft}
+            />
+            <DraftField
+              label={draft.frame === 'local' ? 'Radial m/s' : 'z m/s'}
+              field="c"
+              draft={draft}
+              issues={issues}
+              onChange={setDraft}
+            />
+          </div>
+          {issues.some((i) => i.field === 'id') && (
+            <p className="caveat" role="alert">
+              That burn was deleted while you were editing it.
+            </p>
+          )}
+          <div className="row">
+            <button type="submit" className="active">
+              {draft.id ? 'Save burn' : 'Add burn'}
+            </button>
+            <button type="button" onClick={() => setDraft(null)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
       <p className="hint">
         Nodes are prograde/normal/radial in the craft&apos;s local frame, or inertial. A local burn
         direction depends on where on the orbit it happens, which is the point of defining it that
-        way.
+        way.{editable && ' Every change re-propagates the whole plan immediately.'}
       </p>
     </div>
+  );
+}
+
+/** One labelled text input of the burn form, with its own error message under it. */
+function DraftField({
+  label,
+  field,
+  draft,
+  issues,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  field: 'label' | 'time' | 'a' | 'b' | 'c';
+  draft: NodeDraft;
+  issues: readonly DraftIssue[];
+  onChange: (next: NodeDraft) => void;
+  placeholder?: string;
+}): React.JSX.Element {
+  const issue = issues.find((i) => i.field === field);
+  const errorId = `node-${field}-error`;
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input
+        type="text"
+        inputMode={field === 'label' || field === 'time' ? 'text' : 'decimal'}
+        value={draft[field]}
+        placeholder={placeholder}
+        aria-invalid={issue ? 'true' : undefined}
+        aria-describedby={issue ? errorId : undefined}
+        data-testid={`node-${field}`}
+        onChange={(e) => onChange({ ...draft, [field]: e.target.value })}
+      />
+      {issue && (
+        <span className="field-error" id={errorId} role="alert">
+          {label.replace(/ m\/s$/, '')} {issue.message}
+        </span>
+      )}
+    </label>
   );
 }
 
