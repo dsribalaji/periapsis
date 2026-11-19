@@ -21,7 +21,7 @@ Last full run: `npm run verify` (2026-11-19) and `npx playwright test`.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 532 tests / 22 files                               |
+| Unit tests (`vitest run`)   | PASS, 552 tests / 23 files                               |
 | Build (`vite build`)        | PASS, 842 kB JS (230 kB gzip)                            |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
 | E2E (`npx playwright test`) | PASS, 32 tests against the real app in headless Chromium |
@@ -81,6 +81,7 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/porkchopView.test.ts`    | 50    | colour ramp, image orientation, pointer mapping, ticks, readout   |
 | `tests/departure.test.ts`       | 31    | closed-form departure, Oberth crossover, phase search, plane cost |
 | `tests/transferView.test.ts`    | 42    | cell -> node, timing shift, warnings, horizon extension           |
+| `tests/groundTrack.test.ts`     | 20    | obliquity, GMST rotation, geocentric lat/lon, antimeridian        |
 | `e2e/shell.spec.ts`             | 32    | boot, WebGL, clock, picking, drag, zoom, mission, plot, departure |
 
 ## Module inventory
@@ -103,6 +104,7 @@ the same as a check on a GPU-backed desktop browser.
 | `transfer/lambert.ts`             | complete, tested (single revolution)     |
 | `transfer/porkchop.ts`            | complete, tested (grid of Lambert costs) |
 | `transfer/departure.ts`           | complete, tested (closed-form departure) |
+| `groundTrack/groundTrack.ts`      | complete, tested (ecliptic→equatorial→Earth-fixed lat/lon) |
 
 `src/sim` — pure, no DOM, no clock, no RNG:
 
@@ -163,7 +165,7 @@ import/export.
 | M3 3D shell               | done (M3.1-M3.6)                                                 |
 | M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
 | M5 mission planning       | M5.1–M5.4 done; Earth-Mars/GTO scenarios outstanding (M5.5)      |
-| M6 ground track + Moon    | not started                                                      |
+| M6 ground track + Moon    | M6.1 done (physics); M6.2 panel not started                       |
 | M7 scenarios + polish     | not started                                                      |
 | M8 hardening              | not started                                                      |
 

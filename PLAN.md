@@ -100,6 +100,13 @@ delete one. Those items stay unticked rather than being checked off on the stren
 ## M6 — Ground track and Moon
 
 - [ ] M6.1 Inertial -> Earth-fixed lat/lon via GMST rotation
+      — `core/groundTrack/groundTrack.ts`, 20 unit tests. Three frames in order:
+      heliocentric → Earth-relative **at each sample's own time**, → equatorial (obliquity
+      23.44°, closing the PHYSICS.md §10.4 deferral), → Earth-fixed (GMST). Emits geocentric
+      latitude, east longitude, altitude, and an `crossesAntimeridian` break per segment so a
+      renderer never draws a line across the map. Mutation-tested: removing the obliquity
+      rotation fails 8/20, freezing the epoch-relative origin fails 7/20. PHYSICS.md §13.
+      The panel that draws it is M6.2, which is what keeps this box unticked.
 - [ ] M6.2 2D equirectangular ground-track panel with graticule
 - [ ] M6.3 Free-return scenario
 

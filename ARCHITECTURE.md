@@ -48,6 +48,7 @@ violation is a lint error.
 | `transfer/lambert.ts`      | Lambert's problem, single revolution, universal variables                |
 | `transfer/porkchop.ts`     | Grid of Lambert costs over departure date × flight time, cell asymptotes |
 | `transfer/departure.ts`    | Closed-form burn from a parking orbit onto a given hyperbola             |
+| `groundTrack/groundTrack.ts` | Ecliptic→equatorial→Earth-fixed lat/lon, antimeridian breaks          |
 
 Everything here is a pure function unless it is documented otherwise. Orbits are parameterised
 by time, not by "now".
