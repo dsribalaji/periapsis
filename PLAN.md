@@ -193,7 +193,7 @@ role="button"` with a keydown handler, so Enter, Space, focus order and the focu
 - [x] M8.1 Full verification sweep from a clean install
 - [x] M8.2 Docs completeness audit against the spec
 - [x] M8.3 CHANGELOG v1.0.0, local tag
-- [ ] M8.4 Final report
+- [x] M8.4 Final report
 
 ## Deferred / not planned for v1.0.0
 

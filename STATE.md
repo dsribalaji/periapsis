@@ -15,7 +15,7 @@ Snapshot of where the build actually stands. Updated at the end of every iterati
 
 ## Verified status
 
-Last full run: `npm run verify` (2026-11-19) and `npx playwright test`.
+Last full run: `npm run verify` (2026-11-19) and `npx playwright test`, at tag `v1.0.0`.
 
 | Check                       | Result                                                   |
 | --------------------------- | -------------------------------------------------------- |
@@ -262,7 +262,7 @@ replays a measured trajectory rather than searching for one).
 | M5 mission planning       | done (M5.1–M5.5)                                                 |
 | M6 ground track + Moon    | done (M6.1 physics, M6.2 panel, M6.3 free return)                |
 | M7 scenarios + polish     | done (M7.1–M7.4)                                                 |
-| M8 hardening              | M8.1, M8.2 and M8.3 done; M8.4 report outstanding                |
+| M8 hardening              | done (M8.1–M8.4), v1.0.0 tagged locally                          |
 
 ## Known limitations carried forward
 
