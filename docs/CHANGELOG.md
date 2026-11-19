@@ -3,6 +3,49 @@
 All notable changes to Periapsis. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The Moon was drawn next to the Sun.** Bodies were drawn 282x too large, and satellites were
+  pushed out by the same factor to clear them, which put the Moon 72 scene units from Earth while
+  Earth is 100 from the Sun. Every length now uses one true scale (ADR-0008, D-047).
+- Orbit rings were circles of a fixed radius in the ecliptic, so Mercury sat visibly off its own
+  ring. Each orbit is now the body's real inclined ellipse at the current date.
+- Switching from a body-centred scenario to a Sun-centred one left the camera aimed at the old
+  body.
+- Saturn's rings were drawn as parallel stripes (planar UVs on a radial texture).
+- A debug axes helper was left in the scene.
+- `stateToElements` lost precision near an apsis (`acos` of a cosine near +/-1), which a random
+  seed of the property test caught at 1.2e-7. All in-plane angles now use `atan2` (D-048).
+- Code formatting: 20 files did not pass `npm run format:check`.
+
+### Changed
+
+- Bodies are drawn at their true size when the camera is close enough to resolve them, and at a
+  fixed minimum size in pixels when it is not. The Moon appears once it separates from Earth on
+  screen.
+- The camera follows the body it is framing, so a close-up survives a running clock, and flies
+  between bodies instead of jumping.
+- Every body is oriented along its IAU spin axis: Earth's 23.4 deg tilt, Saturn's rings at 26.7
+  deg, Uranus on its side; Venus and Uranus spin retrograde.
+- Labels sit just above each drawn disc at a constant pixel size, with a dark halo, and
+  overlapping labels are dropped by priority instead of printed on top of each other.
+- Heliocentric orbit lines fade out in Earth-Moon-scale close-ups, where they carry no
+  information.
+- Scenario schema version 2. Version-1 files are migrated, not refused: body-centred camera
+  distances are rescaled so the file opens framed as it was saved.
+
+### Added
+
+- The Moon's orbit around Earth is drawn.
+- Double-click a body to fly to it.
+- Selected-body readouts: distance from Earth, one-way light time, mean radius.
+- Jump-to-date field and a **Now** button in the time bar.
+- **Orbits** and **Labels** toggles in the View panel.
+- A selection reticle around the selected body while it is small on screen.
+- A denser starfield with varied brightness and colour, held at infinity.
+
 ## [1.0.0] - 2026-11-19
 
 The first release. An offline orbital mechanics sandbox and mission designer that runs in the

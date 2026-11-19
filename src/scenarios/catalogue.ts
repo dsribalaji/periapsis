@@ -64,9 +64,10 @@ const RAW: readonly Scenario[] = [
       elevationRad: 0.35,
       // Overridden by the pair framing below, which sizes the distance to the actual
       // separation; kept so the stored value is a sane fallback if the pair is unresolved.
-      distanceUnits: 60,
-      // The Moon is drawn 72.4 units from Earth at its true size ratio. Centring on either one
-      // puts the other off the edge, so the camera aims at the midpoint and fits the pair.
+      distanceUnits: 0.45,
+      // Earth and the Moon are drawn at true size and true separation (0.257 units, 60 Earth
+      // radii). Centring on either one puts the other off the edge, so the camera aims at the
+      // midpoint and fits the pair.
       centeredOn: 'pair',
     },
   },
@@ -85,7 +86,8 @@ const RAW: readonly Scenario[] = [
       radialMode: 'linear',
       azimuthRad: 1.2,
       elevationRad: 0.55,
-      distanceUnits: 26,
+      // Earth fills about a fifth of the view height, with the whole 550 km orbit around it.
+      distanceUnits: 0.05,
       centeredOn: 'focus',
     },
     mission: {
@@ -126,9 +128,9 @@ const RAW: readonly Scenario[] = [
       radialMode: 'linear',
       azimuthRad: 0.9,
       elevationRad: 0.42,
-      // 42,164 km is 6.6 Earth radii; at Earth's 282x exaggeration that is about 7.9 scene
-      // units of orbit radius, so a 30-unit camera holds the whole transfer with room to spare.
-      distanceUnits: 30,
+      // 42,164 km is 6.6 Earth radii, 0.028 scene units of orbit radius, so a 0.106-unit
+      // camera holds the whole transfer with room to spare.
+      distanceUnits: 0.106,
       centeredOn: 'focus',
     },
     mission: {
@@ -192,7 +194,7 @@ const RAW: readonly Scenario[] = [
       radialMode: 'linear',
       azimuthRad: 1.0,
       elevationRad: 0.5,
-      distanceUnits: 22,
+      distanceUnits: 0.055,
       centeredOn: 'focus',
     },
     mission: {
@@ -232,7 +234,9 @@ const RAW: readonly Scenario[] = [
       radialMode: 'linear',
       azimuthRad: 1.9,
       elevationRad: 0.35,
-      distanceUnits: 60,
+      // The Moon is 0.257 units out and the return leg swings past it, so the camera stands
+      // back far enough to hold the whole figure.
+      distanceUnits: 0.75,
       centeredOn: 'focus',
     },
     mission: {

@@ -36,6 +36,9 @@ Two user-selectable radial modes, both labelled in the UI:
 **Body radii are cube-root compressed in both modes** (`1.2·(r/r_earth)^(1/3)`, floor 0.35
 units), so ordering and rough relative size survive while a 10⁷ radius ratio becomes ~2×10².
 
+> **Superseded by ADR-0008** (2026-11-20) for body radii: bodies are now drawn at true scale with
+> a minimum size in pixels. The two radial modes in this ADR are unchanged.
+
 What the compressed mode preserves exactly, and this is what makes it acceptable rather than
 merely convenient:
 

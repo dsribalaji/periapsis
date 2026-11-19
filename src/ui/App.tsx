@@ -24,7 +24,8 @@ import { formatDuration, WARP_STEPS, type Warp } from '../sim/clock.js';
 import { SolarSystemScene } from '../render/scene.js';
 import type { RadialMode } from '../render/scale.js';
 import { BODY_DISPLAY } from './bodyDisplay.js';
-import type { BodyId } from '../core/ephemeris/solarSystem.js';
+import { BODIES, type BodyId } from '../core/ephemeris/solarSystem.js';
+import { jdFromIsoUtc } from '../core/time/time.js';
 import { AU_M, SECONDS_PER_DAY } from '../core/constants.js';
 import { SCENARIOS } from '../scenarios/catalogue.js';
 import {
@@ -73,6 +74,8 @@ interface DisplayState {
   readonly isoUtc: string;
   readonly throttled: boolean;
   readonly distances: ReadonlyMap<BodyId, number>;
+  /** Distance of each body from Earth's centre, metres. */
+  readonly fromEarth: ReadonlyMap<BodyId, number>;
   /** Bodies whose centre is outside the camera frustum, so the user knows why they are missing. */
   readonly offscreen: ReadonlySet<BodyId>;
   /** Set when WebGL could not start; the app still runs, it just cannot draw. */
@@ -87,6 +90,7 @@ function initialDisplay(isoUtc: string): DisplayState {
     isoUtc,
     throttled: false,
     distances: new Map(),
+    fromEarth: new Map(),
     offscreen: new Set<BodyId>(),
     webglError: null,
     progress: null,
@@ -116,6 +120,10 @@ export function App(): React.JSX.Element {
   const [warp, setWarpState] = useState<Warp>(initial.startWarp);
   const [scaleMode, setScaleMode] = useState<RadialMode>(initial.view.radialMode);
   const [display, setDisplay] = useState<DisplayState>(() => initialDisplay(initial.epochUtc));
+  const [showLabels, setShowLabels] = useState(true);
+  const [showOrbits, setShowOrbits] = useState(true);
+  // The date field's own text, so a half-typed date is not fought over by the running clock.
+  const [jumpDate, setJumpDate] = useState('');
   // Feedback from the last "plan departure" attempt. Null means nothing has been attempted.
   const [departureIssue, setDepartureIssue] = useState<string | null>(null);
   const [departureNote, setDepartureNote] = useState<string | null>(null);
@@ -174,10 +182,11 @@ export function App(): React.JSX.Element {
       const scene = sceneRef.current;
       if (!scene) return;
       scene.setRadialMode(next.view.radialMode);
+      scene.setTime(sim.jdTt);
       scene.updatePositions(sim.positions());
-      scene.setCamera(next.view);
-      if (next.view.centeredOn === 'focus') scene.centerOn(next.focus);
-      else if (next.view.centeredOn === 'pair') scene.centerOnPair(next.focus);
+      // One call for angles, distance and what to follow, including a return to the Sun: a
+      // camera left following Earth from the previous scenario would otherwise stay there.
+      scene.applyView(next.view, next.focus);
     },
     [sim],
   );
@@ -326,9 +335,11 @@ export function App(): React.JSX.Element {
       // Reposition immediately and reframe, so the toggle takes effect without waiting for
       // the next simulation step.
       scene.updatePositions(sim.positions());
-      scene.frameAll();
-      // The path is anchored to a body whose scene position just moved, and its own scale is
-      // unaffected by the radial mode, so only the anchor needs refreshing.
+      // Instant rather than flown: the layout itself just changed under the camera, so there
+      // is no meaningful path to animate along.
+      scene.frameAll(false);
+      // The path hangs off a body whose scene position just moved; the scene re-anchors and
+      // rescales it, and the plan itself is unchanged.
       applyPlan(planRef.current);
     },
     [applyPlan, sim],
@@ -352,10 +363,10 @@ export function App(): React.JSX.Element {
       return;
     }
     sceneRef.current = scene;
+    scene.setRadialMode(initial.view.radialMode);
+    scene.setTime(sim.jdTt);
     scene.updatePositions(sim.positions());
-    scene.setCamera(initial.view);
-    if (initial.view.centeredOn === 'focus') scene.centerOn(initial.focus);
-    else if (initial.view.centeredOn === 'pair') scene.centerOnPair(initial.focus);
+    scene.applyView(initial.view, initial.focus);
     scene.render();
 
     return () => {
@@ -366,6 +377,32 @@ export function App(): React.JSX.Element {
     // dependencies are stable; they are listed because the effect reads them and the lint rule
     // is right to want that stated rather than inferred from a variable's name.
   }, [sim, initial]);
+
+  // Scene display options. Declared after the scene lifecycle effect on purpose: effects run in
+  // declaration order, so on mount the scene exists by the time these push into it.
+  useEffect(() => {
+    sceneRef.current?.setSelected(selected);
+  }, [selected]);
+  useEffect(() => {
+    sceneRef.current?.setLabelVisibility(showLabels);
+  }, [showLabels]);
+  useEffect(() => {
+    sceneRef.current?.setOrbitsVisible(showOrbits);
+  }, [showOrbits]);
+
+  /** Moves the clock to an instant without touching the scenario, the warp or the mission. */
+  const jumpTo = useCallback(
+    (isoUtc: string) => {
+      // The parser throws outside its supported calendar range; a date field the user is
+      // still editing must not take the app down, so an unreadable date is simply ignored.
+      try {
+        sim.setJdUtc(jdFromIsoUtc(isoUtc));
+      } catch {
+        /* not a date this build can place: leave the clock where it is */
+      }
+    },
+    [sim],
+  );
 
   // Frame loop: advance the clock, then draw.
   useEffect(() => {
@@ -381,6 +418,7 @@ export function App(): React.JSX.Element {
       const result = sim.advance(elapsedMs);
       const positions = sim.positions();
       const scene = sceneRef.current;
+      scene?.setTime(sim.jdTt);
       scene?.updatePositions(positions);
       scene?.render();
 
@@ -397,15 +435,19 @@ export function App(): React.JSX.Element {
       if (sinceUiUpdate >= 100) {
         sinceUiUpdate = 0;
         const distances = new Map<BodyId, number>();
+        const fromEarth = new Map<BodyId, number>();
         const sun = positions.get('sun') ?? { x: 0, y: 0, z: 0 };
+        const earth = positions.get('earth') ?? sun;
         for (const [id, p] of positions) {
           distances.set(id, Math.hypot(p.x - sun.x, p.y - sun.y, p.z - sun.z));
+          fromEarth.set(id, Math.hypot(p.x - earth.x, p.y - earth.y, p.z - earth.z));
         }
         setDisplay({
           simSeconds: sim.simSeconds,
           isoUtc: sim.snapshot().isoUtc,
           throttled: result.throttled,
           distances,
+          fromEarth,
           offscreen: scene ? scene.offScreenBodies() : new Set<BodyId>(),
           webglError: webglErrorRef.current,
           progress: progressFor(mission, sim.simSeconds),
@@ -460,6 +502,7 @@ export function App(): React.JSX.Element {
 
   const selectedInfo = BODY_DISPLAY.find((b) => b.id === selected);
   const selectedDistance = display.distances.get(selected);
+  const selectedFromEarth = display.fromEarth.get(selected);
   const offScreenNames = BODY_DISPLAY.filter((b) => display.offscreen.has(b.id)).map(
     (b) => b.label,
   );
@@ -605,6 +648,20 @@ export function App(): React.JSX.Element {
                 ? '--'
                 : `${(selectedDistance / AU_M).toFixed(5)} AU`}
             </dd>
+            <dt>Distance from Earth</dt>
+            <dd data-testid="selected-from-earth">
+              {selectedFromEarth === undefined || selected === 'earth'
+                ? '--'
+                : formatDistance(selectedFromEarth)}
+            </dd>
+            <dt>Light time</dt>
+            <dd>
+              {selectedFromEarth === undefined || selected === 'earth'
+                ? '--'
+                : formatLightTime(selectedFromEarth / SPEED_OF_LIGHT)}
+            </dd>
+            <dt>Mean radius</dt>
+            <dd>{`${(BODIES[selected].radius / 1000).toLocaleString('en-US', { maximumFractionDigits: 0 })} km`}</dd>
           </dl>
         </div>
 
@@ -694,9 +751,27 @@ export function App(): React.JSX.Element {
               Whole system
             </button>
           </div>
+          <div className="row toggles" style={{ marginTop: 6 }}>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={showOrbits}
+                onChange={(e) => setShowOrbits(e.target.checked)}
+              />
+              Orbits
+            </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={showLabels}
+                onChange={(e) => setShowLabels(e.target.checked)}
+              />
+              Labels
+            </label>
+          </div>
           <p className="hint">
-            Drag to orbit, scroll to zoom. Space pauses, arrow keys change speed, F frames the
-            selected body.
+            Drag to orbit, scroll to zoom, double-click a body to fly to it. Space pauses, arrow
+            keys change speed, F frames the selected body.
           </p>{' '}
           <p className="hint" data-testid="offscreen-note">
             {offScreenNames.length === 0
@@ -713,10 +788,11 @@ export function App(): React.JSX.Element {
             indicative, not operational.
           </p>
           <p className="caveat">
-            Distances between bodies are drawn to scale only in True scale mode, which fits the
-            inner solar system. Whole system mode uses a logarithmic radius: ordering and angles
-            stay exact, sizes and distances do not. Body radii are cube-root compressed in both
-            modes so every planet stays visible.
+            In True scale mode everything is drawn to one scale: distances, body sizes, the Moon's
+            orbit and spacecraft paths. A body too small to see from where the camera is gets a
+            minimum on-screen size instead, and grows to its real size as you zoom in; the Moon
+            appears once it separates from Earth on screen. Whole system mode uses a logarithmic
+            radius: ordering and directions stay exact, distances do not.
           </p>
         </div>
       </aside>
@@ -741,6 +817,27 @@ export function App(): React.JSX.Element {
               {formatWarp(w)}
             </button>
           ))}
+        </span>
+        <span className="row date-jump">
+          <input
+            type="date"
+            aria-label="Jump to date"
+            value={jumpDate}
+            min="1800-01-01"
+            max="2200-12-31"
+            onChange={(e) => {
+              setJumpDate(e.target.value);
+              // A date input reports '' until the whole date is valid, so this never jumps on
+              // a half-typed year.
+              if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) jumpTo(`${e.target.value}T00:00:00Z`);
+            }}
+          />
+          <button
+            onClick={() => jumpTo(new Date().toISOString().replace(/\.\d+Z$/, 'Z'))}
+            title="Set the clock to the current date and time"
+          >
+            Now
+          </button>
         </span>
         {display.throttled && (
           <span className="throttle-badge" title="Step size coarsened to fit the frame budget">
@@ -768,6 +865,24 @@ export function App(): React.JSX.Element {
       </div>
     </div>
   );
+}
+
+/** Metres per second. */
+const SPEED_OF_LIGHT = 299_792_458;
+
+/** A distance in km below 0.01 AU, in AU above. */
+function formatDistance(m: number): string {
+  if (m < 0.01 * AU_M) {
+    return `${(m / 1000).toLocaleString('en-US', { maximumFractionDigits: 0 })} km`;
+  }
+  return `${(m / AU_M).toFixed(5)} AU`;
+}
+
+/** One-way light time as seconds, or minutes and seconds, or hours and minutes. */
+function formatLightTime(seconds: number): string {
+  if (seconds < 60) return `${seconds.toFixed(2)} s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
+  return `${Math.floor(seconds / 3600)} h ${Math.round((seconds % 3600) / 60)} min`;
 }
 
 /** Compact warp label: 1, 10, 100, 1k, 10k, 100k, 1M, 10M. */

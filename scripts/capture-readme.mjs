@@ -97,7 +97,11 @@ const panels = await open(2);
  * `padX` is needed even for a full-width panel: the sidebar's right edge is the viewport's, so a
  * box clipped to it slices the last character of every right-aligned readout.
  */
-const figure = async (name, selector, { endSelector, padX = 12, padTop = 8, padBottom = 10 } = {}) => {
+const figure = async (
+  name,
+  selector,
+  { endSelector, padX = 12, padTop = 8, padBottom = 10 } = {},
+) => {
   // `boundingBox` is viewport-relative and so is `clip` here, because the page itself does not
   // scroll — the sidebar does. Scrolling the panel into view first is what keeps the clip on
   // screen; without it the figure sits below the fold and Playwright rejects the clip.

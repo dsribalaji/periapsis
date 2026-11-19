@@ -33,16 +33,17 @@ import { clamp01, fbm3, ridged3, smoothstep, valueNoise3 } from './noise.js';
  * and 512 for most planets — 2.8 M pixels and about 1.8 billion hash operations, which measured
  * **14.7 s to boot**. That is not a rendering cost; it is a blank window.
  *
- * Sizes follow how many pixels each body can actually cover: Jupiter is ~30 px wide in the
- * whole-system view and never more than a few hundred anywhere, so 128 is ample. Earth and the
- * Sun are the two the camera can approach closely — Earth fills the viewport in `leo-raise` and
- * the Sun reaches ~460 px in the inner system — so they get 256. Measured total for all bodies:
- * about 760 ms, against 14.7 s before.
+ * Bodies are drawn at true size, so any of them can be framed until it fills the viewport.
+ * Sizes therefore follow how often a body is looked at closely rather than how big it is in
+ * one view: Earth and the Sun (every mission scenario, and the default view) get 256; the Moon,
+ * Mars and the two ringed or banded giants, which are the usual "frame this" targets, get 192;
+ * the rest 128. The noise is low-frequency, so a stretched texture reads as soft rather than
+ * blocky.
  */
-function textureSize(id: BodyId, displayRadius: number): number {
+function textureSize(id: BodyId): number {
   if (id === 'earth' || id === 'sun') return 256;
-  if (displayRadius > 1.5) return 128;
-  return 96;
+  if (id === 'moon' || id === 'mars' || id === 'jupiter' || id === 'saturn') return 192;
+  return 128;
 }
 
 /** RGB triple, 0-255. */
@@ -247,7 +248,7 @@ function earthSurface(nx: number, ny: number, nz: number, polar: number): Rgb {
   }
 
   // Ice caps, wider at the poles, with a ragged edge from the detail field.
-  const iceEdge = 0.80 + detail * 0.06;
+  const iceEdge = 0.8 + detail * 0.06;
   const ice = smoothstep(iceEdge, iceEdge + 0.1, lat);
   c = mix(c, [232, 240, 248], ice);
 
@@ -260,7 +261,8 @@ function earthSurface(nx: number, ny: number, nz: number, polar: number): Rgb {
  * The maria are large low-albedo basalt plains concentrated on the near side; a noise threshold
  * at low frequency reproduces the look without pretending to place the real ones.
  */
-function moonSurface(nx: number, ny: number, nz: number): Rgb {  const maria = fbm3(nx * 1.8, ny * 1.8, nz * 1.8, 4, 311);
+function moonSurface(nx: number, ny: number, nz: number): Rgb {
+  const maria = fbm3(nx * 1.8, ny * 1.8, nz * 1.8, 4, 311);
   const regolith = fbm3(nx * 9, ny * 9, nz * 9, 5, 401);
   const craters = ridged3(nx * 16, ny * 16, nz * 16, 4, 533);
 
@@ -381,7 +383,11 @@ export function generateRings(width: number): THREE.DataTexture {
       smoothstep(0.42, 0.46, t) * (1 - smoothstep(0.5, 0.54, t)) +
       smoothstep(0.74, 0.77, t) * (1 - smoothstep(0.78, 0.8, t));
     const band = 0.55 + 0.45 * Math.sin(t * 90) * 0.5 + 0.25 * valueNoise3(t * 40, 0, 0, 17);
-    const alpha = clamp01(band * (1 - gap * 0.95)) * 190 * smoothstep(0, 0.06, t) * (1 - smoothstep(0.92, 1, t));
+    const alpha =
+      clamp01(band * (1 - gap * 0.95)) *
+      190 *
+      smoothstep(0, 0.06, t) *
+      (1 - smoothstep(0.92, 1, t));
     for (let y = 0; y < height; y++) {
       const offset = (y * width + x) * 4;
       put(data, offset, [226, 208, 170], alpha);

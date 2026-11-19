@@ -214,6 +214,39 @@ input:focus-visible {
   outline-offset: 1px;
 }
 
+.toggles {
+  gap: 14px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toggle input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.date-jump {
+  gap: 6px;
+}
+
+.date-jump input[type='date'] {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: #161b24;
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  padding: 4px 6px;
+  color-scheme: dark;
+}
+
 select,
 input[type='text'] {
   font-family: var(--mono);
