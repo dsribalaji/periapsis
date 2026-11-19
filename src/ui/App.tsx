@@ -25,9 +25,14 @@ import { SolarSystemScene } from '../render/scene.js';
 import type { RadialMode } from '../render/scale.js';
 import { BODY_DISPLAY } from './bodyDisplay.js';
 import { BODIES, type BodyId } from '../core/ephemeris/solarSystem.js';
+import { SMALL_BODIES, smallBodyById, smallBodyPosition } from '../core/ephemeris/smallBodies.js';
 import { jdFromIsoUtc } from '../core/time/time.js';
 import { AU_M, SECONDS_PER_DAY } from '../core/constants.js';
-import { SCENARIOS } from '../scenarios/catalogue.js';
+import { SCENARIOS, scenarioById } from '../scenarios/catalogue.js';
+import { SelectedPanel } from './SelectedPanel.js';
+import { SmallBodiesPanel } from './SmallBodiesPanel.js';
+import { encodeShareLink, parseShareLink, type ParsedShareLink } from './shareLink.js';
+import { applyNodeDraft, removeNode } from './nodeEditor.js';
 import {
   browserStore,
   clearScenario,
@@ -62,6 +67,21 @@ function bootOnce(): BootState {
   return bootScenario();
 }
 
+/** The share link the page was opened with, if any. Read once, like the store. */
+function linkOnce(): ParsedShareLink | null {
+  return typeof window === 'undefined' ? null : parseShareLink(window.location.hash);
+}
+
+/** Whether an id names something the app can select: a planet, the Moon, the Sun or a small body. */
+function isTarget(id: string | undefined): id is string {
+  return id !== undefined && (id in BODIES || smallBodyById(id) !== undefined);
+}
+
+/** Every small body's heliocentric position at a TT Julian date, metres. */
+function smallBodyPositions(jdTt: number): Map<string, ReturnType<typeof smallBodyPosition>> {
+  return new Map(SMALL_BODIES.map((b) => [b.id, smallBodyPosition(b, jdTt)]));
+}
+
 /** Colour of the craft's path, distinct from every body colour. */
 const MISSION_COLOR = 0xff9f1c;
 
@@ -73,9 +93,10 @@ interface DisplayState {
   readonly simSeconds: number;
   readonly isoUtc: string;
   readonly throttled: boolean;
-  readonly distances: ReadonlyMap<BodyId, number>;
-  /** Distance of each body from Earth's centre, metres. */
-  readonly fromEarth: ReadonlyMap<BodyId, number>;
+  /** Distance of each target (planet or small body) from the Sun, metres. */
+  readonly distances: ReadonlyMap<string, number>;
+  /** Distance of each target from Earth's centre, metres. */
+  readonly fromEarth: ReadonlyMap<string, number>;
   /** Bodies whose centre is outside the camera frustum, so the user knows why they are missing. */
   readonly offscreen: ReadonlySet<BodyId>;
   /** Set when WebGL could not start; the app still runs, it just cannot draw. */
@@ -103,22 +124,43 @@ export function App(): React.JSX.Element {
   // Boot runs once, in a lazy initialiser, so a StrictMode double mount does not cost a second
   // storage read and the first render already knows which scenario it is showing.
   const [boot] = useState(bootOnce);
-  const initial = boot.scenario;
+  // A share link wins over the remembered scenario: opening someone's link is an explicit
+  // request to see what they saw. Only a bundled scenario can be named by a link.
+  const [link] = useState(linkOnce);
+  const linkScenario = link?.scenarioId ? scenarioById(link.scenarioId) : undefined;
+  const initial = linkScenario ?? boot.scenario;
   // The store, resolved once per mount. Null when the browser will not give us one, which is a
   // normal condition (private mode, blocked cookies) rather than an error: the app simply does
   // not remember anything, and nothing in the UI claims it does.
   const [store] = useState<KeyValueStore | null>(() => browserStore());
   // Created once. Never replaced, only mutated through event handlers.
-  const [sim] = useState(() => new Simulation(initial.epochUtc, initial.startWarp));
+  const [sim] = useState(() => {
+    const s = new Simulation(initial.epochUtc, link?.warp ?? initial.startWarp);
+    if (link?.timeUtc) {
+      try {
+        s.setJdUtc(jdFromIsoUtc(link.timeUtc));
+      } catch {
+        /* a date outside the supported range: open at the scenario's epoch instead */
+      }
+    }
+    return s;
+  });
 
   const [scenario, setScenario] = useState<Scenario>(initial);
   // The mission is state, not derived from the scenario, because a planned departure writes a
   // node into it. It is seeded from the scenario and replaced wholesale on a scenario switch,
   // so a node planned in one scenario can never leak into another.
   const [mission, setMission] = useState<CraftSpec | undefined>(initial.mission);
-  const [selected, setSelected] = useState<BodyId>(initial.focus);
-  const [warp, setWarpState] = useState<Warp>(initial.startWarp);
-  const [scaleMode, setScaleMode] = useState<RadialMode>(initial.view.radialMode);
+  // A planet/Moon/Sun `BodyId` or a small-body id.
+  const [selected, setSelected] = useState<string>(() =>
+    isTarget(link?.selected) ? link.selected : initial.focus,
+  );
+  const [warp, setWarpState] = useState<Warp>(link?.warp ?? initial.startWarp);
+  const [scaleMode, setScaleMode] = useState<RadialMode>(
+    link?.radialMode ?? initial.view.radialMode,
+  );
+  const [showSmallBodies, setShowSmallBodies] = useState(true);
+  const [shareNote, setShareNote] = useState<string | null>(null);
   const [display, setDisplay] = useState<DisplayState>(() => initialDisplay(initial.epochUtc));
   const [showLabels, setShowLabels] = useState(true);
   const [showOrbits, setShowOrbits] = useState(true);
@@ -363,11 +405,19 @@ export function App(): React.JSX.Element {
       return;
     }
     sceneRef.current = scene;
-    scene.setRadialMode(initial.view.radialMode);
+    scene.setSmallBodies(SMALL_BODIES);
+    scene.setRadialMode(link?.radialMode ?? initial.view.radialMode);
     scene.setTime(sim.jdTt);
     scene.updatePositions(sim.positions());
+    scene.updateSmallBodyPositions(smallBodyPositions(sim.jdTt));
     scene.applyView(initial.view, initial.focus);
+    if (link?.camera) scene.restoreView(link.camera);
     scene.render();
+    // The link has done its job. Clearing the fragment means a later reload opens what the
+    // person has moved on to, not the view they were first sent.
+    if (link && typeof window !== 'undefined') {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
 
     return () => {
       scene.dispose();
@@ -376,7 +426,7 @@ export function App(): React.JSX.Element {
     // `initial` is the boot scenario and never changes for the life of the component, so these
     // dependencies are stable; they are listed because the effect reads them and the lint rule
     // is right to want that stated rather than inferred from a variable's name.
-  }, [sim, initial]);
+  }, [sim, initial, link]);
 
   // Scene display options. Declared after the scene lifecycle effect on purpose: effects run in
   // declaration order, so on mount the scene exists by the time these push into it.
@@ -389,6 +439,53 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     sceneRef.current?.setOrbitsVisible(showOrbits);
   }, [showOrbits]);
+  useEffect(() => {
+    sceneRef.current?.setSmallBodiesVisible(showSmallBodies);
+  }, [showSmallBodies]);
+
+  // Pasting a share link into a tab that already has the app open changes only the fragment,
+  // which does not reload the page. Reload so the link is read like any other first visit.
+  useEffect(() => {
+    const onHash = () => {
+      if (parseShareLink(window.location.hash)) window.location.reload();
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  /** Copies a link to exactly this view, or explains why it cannot. */
+  const handleShare = useCallback(() => {
+    const scene = sceneRef.current;
+    if (!scenarioById(scenario.id)) {
+      setShareNote(
+        'Links can name a bundled scenario only. Use "Download scenario" to share this one.',
+      );
+      return;
+    }
+    const camera = scene?.getCamera() ?? {
+      azimuthRad: scenario.view.azimuthRad,
+      elevationRad: scenario.view.elevationRad,
+      distanceUnits: scenario.view.distanceUnits,
+    };
+    const fragment = encodeShareLink({
+      scenarioId: scenario.id,
+      timeUtc: sim.snapshot().isoUtc,
+      selected,
+      warp: sim.warp,
+      radialMode: scaleMode,
+      camera: { ...camera, follow: scene?.getFollow() ?? null },
+    });
+    const url = `${window.location.origin}${window.location.pathname}#${fragment}`;
+    const clipboard = navigator.clipboard as Clipboard | undefined;
+    if (clipboard?.writeText) {
+      clipboard.writeText(url).then(
+        () => setShareNote('Link copied. It opens this scenario, instant, target and camera.'),
+        () => setShareNote(`Copy this link: ${url}`),
+      );
+    } else {
+      setShareNote(`Copy this link: ${url}`);
+    }
+  }, [scenario, selected, scaleMode, sim]);
 
   /** Moves the clock to an instant without touching the scenario, the warp or the mission. */
   const jumpTo = useCallback(
@@ -418,8 +515,12 @@ export function App(): React.JSX.Element {
       const result = sim.advance(elapsedMs);
       const positions = sim.positions();
       const scene = sceneRef.current;
-      scene?.setTime(sim.jdTt);
+      const jdTt = sim.jdTt;
+      // Nineteen Kepler solves: microseconds, so the small bodies move every frame like the rest.
+      const small = smallBodyPositions(jdTt);
+      scene?.setTime(jdTt);
       scene?.updatePositions(positions);
+      scene?.updateSmallBodyPositions(small);
       scene?.render();
 
       // The craft advances every frame, not only on the UI tick: at warp 1000 a 10 Hz readout
@@ -434,11 +535,11 @@ export function App(): React.JSX.Element {
       sinceUiUpdate += elapsedMs;
       if (sinceUiUpdate >= 100) {
         sinceUiUpdate = 0;
-        const distances = new Map<BodyId, number>();
-        const fromEarth = new Map<BodyId, number>();
+        const distances = new Map<string, number>();
+        const fromEarth = new Map<string, number>();
         const sun = positions.get('sun') ?? { x: 0, y: 0, z: 0 };
         const earth = positions.get('earth') ?? sun;
-        for (const [id, p] of positions) {
+        for (const [id, p] of [...positions, ...small]) {
           distances.set(id, Math.hypot(p.x - sun.x, p.y - sun.y, p.z - sun.z));
           fromEarth.set(id, Math.hypot(p.x - earth.x, p.y - earth.y, p.z - earth.z));
         }
@@ -493,16 +594,13 @@ export function App(): React.JSX.Element {
       } else if (e.key === '-' || e.key === '_') {
         sceneRef.current?.zoom(1.18);
       } else if (e.key === 'f' || e.key === 'F') {
-        sceneRef.current?.frameBody(selected);
+        sceneRef.current?.frameTarget(selected);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [handleWarp, togglePause, sim, selected]);
 
-  const selectedInfo = BODY_DISPLAY.find((b) => b.id === selected);
-  const selectedDistance = display.distances.get(selected);
-  const selectedFromEarth = display.fromEarth.get(selected);
   const offScreenNames = BODY_DISPLAY.filter((b) => display.offscreen.has(b.id)).map(
     (b) => b.label,
   );
@@ -521,7 +619,11 @@ export function App(): React.JSX.Element {
    */
   let restoreNote: string | null = null;
   const restore = boot.restore;
-  if (restore && !restore.ok) {
+  if (linkScenario) {
+    // A link overrides whatever the browser remembered, so the note must say where this came
+    // from; "opened the saved scenario" would be untrue.
+    restoreNote = 'Opened from a shared link: the scenario, instant, target and camera it named.';
+  } else if (restore && !restore.ok) {
     if (restore.reason === 'corrupt') {
       restoreNote =
         'The scenario saved in this browser no longer loaded, so it was discarded and the ' +
@@ -631,41 +733,43 @@ export function App(): React.JSX.Element {
         </div>
 
         <ScenarioFilePanel
-          scenario={scenario}
+          // The download carries the plan as edited, not as it was loaded: a burn someone
+          // designed here is exactly the work they want to keep.
+          scenario={mission ? { ...scenario, mission } : scenario}
           onImport={applyScenario}
           store={store}
           onClear={handleClearStored}
         />
 
-        <div className="section">
-          <h2>Selected</h2>
-          <dl className="readout">
-            <dt>Body</dt>
-            <dd style={{ color: selectedInfo?.color }}>{selectedInfo?.label ?? '--'}</dd>
-            <dt>Distance from Sun</dt>
-            <dd>
-              {selectedDistance === undefined || selected === 'sun'
-                ? '--'
-                : `${(selectedDistance / AU_M).toFixed(5)} AU`}
-            </dd>
-            <dt>Distance from Earth</dt>
-            <dd data-testid="selected-from-earth">
-              {selectedFromEarth === undefined || selected === 'earth'
-                ? '--'
-                : formatDistance(selectedFromEarth)}
-            </dd>
-            <dt>Light time</dt>
-            <dd>
-              {selectedFromEarth === undefined || selected === 'earth'
-                ? '--'
-                : formatLightTime(selectedFromEarth / SPEED_OF_LIGHT)}
-            </dd>
-            <dt>Mean radius</dt>
-            <dd>{`${(BODIES[selected].radius / 1000).toLocaleString('en-US', { maximumFractionDigits: 0 })} km`}</dd>
-          </dl>
-        </div>
+        <SelectedPanel
+          id={selected}
+          measurements={{
+            fromSun: display.distances.get(selected),
+            fromEarth: display.fromEarth.get(selected),
+            jdTt: sim.jdTt,
+          }}
+          onShare={typeof window === 'undefined' ? null : handleShare}
+          shareNote={shareNote}
+        />
 
-        {plan && <MissionPanel plan={plan} progress={progress} testid="mission" />}
+        {plan && mission && (
+          <MissionPanel
+            plan={plan}
+            progress={progress}
+            testid="mission"
+            maneuvers={mission.maneuvers}
+            nowSeconds={display.simSeconds}
+            onApplyDraft={(draft) => {
+              const result = applyNodeDraft(mission, draft);
+              if (!result.ok) return result.issues;
+              setMission(result.craft);
+              setDepartureIssue(null);
+              setDepartureNote(result.note);
+              return [];
+            }}
+            onDeleteNode={(id) => setMission(removeNode(mission, id))}
+          />
+        )}
 
         {plan?.groundTrack && (
           <GroundTrackPanel
@@ -712,7 +816,7 @@ export function App(): React.JSX.Element {
                     aria-current={isCurrent ? 'true' : undefined}
                     onClick={() => {
                       setSelected(b.id);
-                      sceneRef.current?.frameBody(b.id);
+                      sceneRef.current?.frameTarget(b.id);
                     }}
                   >
                     <span className="swatch" style={{ background: b.color }} aria-hidden="true" />
@@ -727,13 +831,24 @@ export function App(): React.JSX.Element {
           </ul>
         </div>
 
+        <SmallBodiesPanel
+          selected={selected}
+          distances={display.distances}
+          visible={showSmallBodies}
+          onVisible={setShowSmallBodies}
+          onPick={(id) => {
+            setSelected(id);
+            sceneRef.current?.frameTarget(id);
+          }}
+        />
+
         <div className="section">
           <h2>View</h2>
           <div className="row">
             <button onClick={() => sceneRef.current?.frameAll()} title="Reset the camera">
               Reset view
             </button>
-            <button onClick={() => sceneRef.current?.frameBody(selected)}>Frame selection</button>
+            <button onClick={() => sceneRef.current?.frameTarget(selected)}>Frame selection</button>
           </div>
           <div className="row" style={{ marginTop: 6 }}>
             <button
@@ -865,24 +980,6 @@ export function App(): React.JSX.Element {
       </div>
     </div>
   );
-}
-
-/** Metres per second. */
-const SPEED_OF_LIGHT = 299_792_458;
-
-/** A distance in km below 0.01 AU, in AU above. */
-function formatDistance(m: number): string {
-  if (m < 0.01 * AU_M) {
-    return `${(m / 1000).toLocaleString('en-US', { maximumFractionDigits: 0 })} km`;
-  }
-  return `${(m / AU_M).toFixed(5)} AU`;
-}
-
-/** One-way light time as seconds, or minutes and seconds, or hours and minutes. */
-function formatLightTime(seconds: number): string {
-  if (seconds < 60) return `${seconds.toFixed(2)} s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
-  return `${Math.floor(seconds / 3600)} h ${Math.round((seconds % 3600) / 60)} min`;
 }
 
 /** Compact warp label: 1, 10, 100, 1k, 10k, 100k, 1M, 10M. */

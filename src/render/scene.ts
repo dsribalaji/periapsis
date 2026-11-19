@@ -31,6 +31,7 @@ import {
   type RadialMode,
 } from './scale.js';
 import { orbitPathPoints } from './orbitPaths.js';
+import { smallBodyOrbit, type SmallBodyRecord } from '../core/ephemeris/smallBodies.js';
 import { poleEcliptic, SPIN_SENSE } from './poles.js';
 import { generateClouds, generateRings, generateSurface, textureSize } from './bodyTextures.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
@@ -93,9 +94,37 @@ interface TrajectoryVisual {
 
 export interface SceneCallbacks {
   /** Called with the body under the pointer, or null when nothing is hovered. */
-  readonly onHover?: (id: BodyId | null) => void;
-  readonly onSelect?: (id: BodyId) => void;
+  readonly onHover?: (id: string | null) => void;
+  /** A planet or Moon `BodyId`, or a small-body id from `smallBodies.ts`. */
+  readonly onSelect?: (id: string) => void;
 }
+
+/** A dwarf planet, asteroid or comet: drawn and pickable, but with no gravity. */
+interface SmallVisual {
+  readonly id: string;
+  readonly mesh: THREE.Mesh;
+  readonly label: THREE.Sprite;
+  readonly labelAspect: number;
+  readonly orbit: THREE.Line;
+  /** The record the orbit was built from, kept to rebuild it on a radial-mode change. */
+  readonly record: SmallBodyRecord;
+  readonly trueRadius: number;
+  /** Heliocentric distance in metres, for the compressed layout's local scale. */
+  helioDistance: number;
+  drawnRadius: number;
+  drawnRadiusPx: number;
+  shown: boolean;
+}
+
+/** Marker colour per small-body kind, distinct from every planet's. */
+const SMALL_BODY_COLORS: Record<SmallBodyRecord['kind'], number> = {
+  dwarf: 0xd9c7b0,
+  asteroid: 0xa4adb8,
+  comet: 0x8fd6ff,
+};
+
+/** Small bodies sit below the faintest planet marker, so they never outrank one. */
+const SMALL_BODY_MIN_PX = 2.2;
 
 /** A stored camera framing, as a scenario carries it. */
 export interface SceneView {
@@ -109,7 +138,8 @@ export interface SceneView {
 type Follow =
   | { readonly kind: 'origin' }
   | { readonly kind: 'body'; readonly id: BodyId }
-  | { readonly kind: 'pair'; readonly id: BodyId };
+  | { readonly kind: 'pair'; readonly id: BodyId }
+  | { readonly kind: 'small'; readonly id: string };
 
 /** Flat colour per body, used for orbit paths and the selection reticle. */
 const BODY_COLORS: Record<BodyId, number> = {
@@ -249,7 +279,10 @@ export class SolarSystemScene {
   private orbitEpoch = Number.NaN;
   private orbitsVisible = true;
   private labelsVisible = true;
-  private selected: BodyId | null = null;
+  private selected: string | null = null;
+  /** Dwarf planets, asteroids and comets, keyed by their small-body id. */
+  private readonly smallBodies = new Map<string, SmallVisual>();
+  private smallBodiesVisible = true;
 
   private readonly trajectories = new Map<string, TrajectoryVisual>();
   /** Craft marker geometry, shared by every craft. */
@@ -260,6 +293,10 @@ export class SolarSystemScene {
   private drag: { lastX: number; lastY: number; moved: number } | null = null;
   /** Set after a drag so the trailing click does not reselect. */
   private suppressNextClick = false;
+  /** Active pointers, for pinch-to-zoom. */
+  private readonly touches = new Map<number, { x: number; y: number }>();
+  /** Finger separation at the previous pinch move, px; 0 when no pinch is in progress. */
+  private pinchSpan = 0;
 
   /** Camera orbit state, in spherical coordinates around `target`. */
   private azimuth = 0.6;
@@ -831,6 +868,95 @@ export class SolarSystemScene {
     this.radialMode = mode;
     // Path points are mapped through the radial mode, so they must be rebuilt.
     if (!Number.isNaN(this.orbitEpoch)) this.buildOrbitPaths(this.orbitEpoch);
+    for (const visual of this.smallBodies.values()) this.fillSmallOrbit(visual);
+  }
+
+  // --------------------------------------------------------------------------------------
+  // Small bodies
+  // --------------------------------------------------------------------------------------
+
+  /** Creates the drawn dwarf planets, asteroids and comets. Call once. */
+  setSmallBodies(records: readonly SmallBodyRecord[]): void {
+    const geometry = new THREE.SphereGeometry(1, 16, 12);
+    for (const record of records) {
+      if (this.smallBodies.has(record.id)) continue;
+      const color = SMALL_BODY_COLORS[record.kind];
+      const mesh = new THREE.Mesh(
+        geometry,
+        new THREE.MeshStandardMaterial({ color, roughness: 1 }),
+      );
+      mesh.userData.smallBodyId = record.id;
+      const orbit = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.22, depthWrite: false }),
+      );
+      const { sprite: label, aspect } = this.makeLabel(record.name);
+      this.scene.add(mesh, orbit, label);
+      const visual: SmallVisual = {
+        id: record.id,
+        mesh,
+        label,
+        labelAspect: aspect,
+        orbit,
+        record,
+        // An unknown diameter is drawn as 1 km: a body that small is a marker at every zoom.
+        trueRadius: trueRadiusUnits(((record.diameterKm ?? 2) * 1000) / 2),
+        helioDistance: 0,
+        drawnRadius: 0,
+        drawnRadiusPx: 0,
+        shown: this.smallBodiesVisible,
+      };
+      this.fillSmallOrbit(visual);
+      this.smallBodies.set(record.id, visual);
+    }
+  }
+
+  /** Builds a small body's orbit path through the active radial mapping. */
+  private fillSmallOrbit(visual: SmallVisual): void {
+    const pts = smallBodyOrbit(visual.record, 360);
+    const flat = new Float32Array(pts.length * 3);
+    pts.forEach((p, k) => {
+      const [x, y, z] = scalePosition(p.x, p.y, p.z, this.radialMode);
+      flat[k * 3] = x;
+      flat[k * 3 + 1] = y;
+      flat[k * 3 + 2] = z;
+    });
+    visual.orbit.geometry.setAttribute('position', new THREE.BufferAttribute(flat, 3));
+    visual.orbit.geometry.computeBoundingSphere();
+  }
+
+  /** Moves the small bodies to heliocentric positions in metres, keyed by small-body id. */
+  updateSmallBodyPositions(
+    positions: ReadonlyMap<string, { x: number; y: number; z: number }>,
+  ): void {
+    for (const [id, p] of positions) {
+      const visual = this.smallBodies.get(id);
+      if (!visual) continue;
+      const [x, y, z] = scalePosition(p.x, p.y, p.z, this.radialMode);
+      visual.mesh.position.set(x, y, z);
+      visual.helioDistance = Math.hypot(p.x, p.y, p.z);
+    }
+    if (this.follow.kind === 'small') this.applyFollow();
+  }
+
+  /** Shows or hides every small body, its orbit and its label. */
+  setSmallBodiesVisible(visible: boolean): void {
+    this.smallBodiesVisible = visible;
+  }
+
+  /** Frames any target: a planet, the Moon, the Sun or a small body. */
+  frameTarget(id: string, animate = true): void {
+    if (id in BODIES) {
+      this.frameBody(id as BodyId, animate);
+      return;
+    }
+    const visual = this.smallBodies.get(id);
+    if (!visual) return;
+    // Small bodies are kilometres across, so filling the view with one says nothing. Frame it as
+    // a marker in its neighbourhood instead: a third of its distance from the Sun, so its orbit
+    // and the nearest planets are in shot.
+    const fromSun = visual.mesh.position.length();
+    this.flyTo({ kind: 'small', id }, Math.max(fromSun * 0.35, 1), animate);
   }
 
   get scaleMode(): RadialMode {
@@ -849,7 +975,7 @@ export class SolarSystemScene {
   }
 
   /** Marks a body as selected: it gets a reticle and its label always wins a collision. */
-  setSelected(id: BodyId | null): void {
+  setSelected(id: string | null): void {
     this.selected = id;
   }
 
@@ -906,6 +1032,35 @@ export class SolarSystemScene {
   /** Current camera framing, so the UI can save it back into a scenario. */
   getCamera(): { azimuthRad: number; elevationRad: number; distanceUnits: number } {
     return { azimuthRad: this.azimuth, elevationRad: this.elevation, distanceUnits: this.distance };
+  }
+
+  /** What the camera follows: a target id, or null for the Sun-centred view. */
+  getFollow(): string | null {
+    const f = this.follow;
+    return f.kind === 'origin' ? null : f.id;
+  }
+
+  /**
+   * Restores an exact camera from a share link: angles, distance and what it follows.
+   *
+   * A pair follow is not stored in links, so following the Moon from a link follows the Moon
+   * itself; the framing is the same, the anchor is a few thousand km different.
+   */
+  restoreView(view: {
+    readonly azimuthRad: number;
+    readonly elevationRad: number;
+    readonly distanceUnits: number;
+    readonly follow: string | null;
+  }): void {
+    this.flight = null;
+    this.azimuth = view.azimuthRad;
+    this.elevation = clamp(view.elevationRad, -1.5, 1.5);
+    this.distance = clamp(view.distanceUnits, MIN_DISTANCE, MAX_DISTANCE);
+    const id = view.follow;
+    if (id === null) this.follow = { kind: 'origin' };
+    else if (id in BODIES) this.follow = { kind: 'body', id: id as BodyId };
+    else if (this.smallBodies.has(id)) this.follow = { kind: 'small', id };
+    this.applyFollow();
   }
 
   /** Frames the whole layout around the Sun. */
@@ -980,6 +1135,10 @@ export class SolarSystemScene {
 
   /** Never inside the followed body: a little above its true surface. */
   private minDistance(): number {
+    if (this.follow.kind === 'small') {
+      const small = this.smallBodies.get(this.follow.id);
+      return small ? Math.max(MIN_DISTANCE, small.trueRadius * 1.15) : MIN_DISTANCE;
+    }
     if (this.follow.kind !== 'body') return MIN_DISTANCE;
     const visual = this.bodies.get(this.follow.id);
     if (!visual) return MIN_DISTANCE;
@@ -1008,6 +1167,10 @@ export class SolarSystemScene {
   private followPoint(out: THREE.Vector3): THREE.Vector3 {
     const f = this.follow;
     if (f.kind === 'origin') return out.set(0, 0, 0);
+    if (f.kind === 'small') {
+      const small = this.smallBodies.get(f.id);
+      return small ? out.copy(small.mesh.position) : out.copy(this.target);
+    }
     const p = this.scenePositions.get(f.id);
     if (!p) return out.copy(this.target);
     if (f.kind === 'body') return out.copy(p);
@@ -1109,6 +1272,23 @@ export class SolarSystemScene {
       (line.material as THREE.LineBasicMaterial).opacity = 0.42 * fade;
       line.visible = this.orbitsVisible && fade > 0.01;
     }
+
+    // Small bodies: the same pixel-minimum rule. Only the selected one draws its orbit: nineteen
+    // extra ellipses across the inner system bury the planets' orbits, which are the reference
+    // everything else is read against.
+    for (const visual of this.smallBodies.values()) {
+      const local = localUnitsPerMetre(visual.helioDistance, this.radialMode) / UNITS_PER_M;
+      const d = this.camera.position.distanceTo(visual.mesh.position);
+      const upp = unitsPerPixelAt(d, fov, height);
+      visual.drawnRadius = drawnRadiusUnits(visual.trueRadius * local, upp, SMALL_BODY_MIN_PX);
+      visual.drawnRadiusPx = upp > 0 ? visual.drawnRadius / upp : 0;
+      visual.mesh.scale.setScalar(visual.drawnRadius);
+      const isSelected = visual.id === this.selected;
+      visual.shown = this.smallBodiesVisible || isSelected;
+      visual.mesh.visible = visual.shown;
+      (visual.orbit.material as THREE.LineBasicMaterial).opacity = 0.65;
+      visual.orbit.visible = isSelected && this.orbitsVisible;
+    }
   }
 
   /**
@@ -1126,18 +1306,18 @@ export class SolarSystemScene {
     const scaleY = (LABEL_HEIGHT_PX * 2 * tanHalf) / height;
     const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
 
-    const ranked = [...this.bodies.values()].sort((a, b) => {
-      const pa = a.id === this.selected ? 2 : a.id === 'sun' ? 1 : 0;
-      const pb = b.id === this.selected ? 2 : b.id === 'sun' ? 1 : 0;
-      return pb - pa || b.trueRadius - a.trueRadius;
-    });
+    // Selected first, then the Sun, then planets by size, then small bodies by size. A small
+    // body's name never pushes a planet's off the screen.
+    const ranked = [...this.labelItems()].sort(
+      (a, b) => b.priority - a.priority || b.trueRadius - a.trueRadius,
+    );
 
     const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
     const ndc = new THREE.Vector3();
     for (const visual of ranked) {
       const label = visual.label;
       label.scale.set(scaleY * visual.labelAspect, scaleY, 1);
-      label.position.copy(visual.root.position).addScaledVector(up, visual.drawnRadius);
+      label.position.copy(visual.position).addScaledVector(up, visual.drawnRadius);
       if (!this.labelsVisible || !visual.shown) {
         label.visible = false;
         continue;
@@ -1165,10 +1345,58 @@ export class SolarSystemScene {
     }
   }
 
+  /** Everything that carries a label, in one shape for the decluttering pass. */
+  private *labelItems(): Generator<{
+    readonly label: THREE.Sprite;
+    readonly labelAspect: number;
+    readonly position: THREE.Vector3;
+    readonly drawnRadius: number;
+    readonly shown: boolean;
+    readonly trueRadius: number;
+    readonly priority: number;
+  }> {
+    for (const v of this.bodies.values()) {
+      yield {
+        label: v.label,
+        labelAspect: v.labelAspect,
+        position: v.root.position,
+        drawnRadius: v.drawnRadius,
+        shown: v.shown,
+        trueRadius: v.trueRadius,
+        priority: v.id === this.selected ? 3 : v.id === 'sun' ? 2 : 1,
+      };
+    }
+    for (const v of this.smallBodies.values()) {
+      yield {
+        label: v.label,
+        labelAspect: v.labelAspect,
+        position: v.mesh.position,
+        drawnRadius: v.drawnRadius,
+        shown: v.shown,
+        trueRadius: v.trueRadius,
+        priority: v.id === this.selected ? 3 : 0,
+      };
+    }
+  }
+
+  /** The selected target's position and drawn size, planet or small body. */
+  private selectedMarker(): { position: THREE.Vector3; drawnRadiusPx: number } | null {
+    if (!this.selected) return null;
+    const body = this.bodies.get(this.selected as BodyId);
+    if (body)
+      return body.shown
+        ? { position: body.root.position, drawnRadiusPx: body.drawnRadiusPx }
+        : null;
+    const small = this.smallBodies.get(this.selected);
+    return small?.shown
+      ? { position: small.mesh.position, drawnRadiusPx: small.drawnRadiusPx }
+      : null;
+  }
+
   /** Holds the selection reticle around the selected body at a constant margin. */
   private updateReticle(): void {
-    const visual = this.selected ? this.bodies.get(this.selected) : undefined;
-    if (!visual || !visual.shown) {
+    const visual = this.selectedMarker();
+    if (!visual) {
       this.reticle.visible = false;
       return;
     }
@@ -1179,7 +1407,7 @@ export class SolarSystemScene {
     // A body big enough to see plainly needs no marker around it.
     this.reticle.visible = visual.drawnRadiusPx < 18;
     this.reticle.scale.set(s, s, 1);
-    this.reticle.position.copy(visual.root.position);
+    this.reticle.position.copy(visual.position);
   }
 
   /** Holds every craft marker at a constant apparent size, about 5 px in radius. */
@@ -1230,6 +1458,19 @@ export class SolarSystemScene {
     this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
+    // Two fingers: pinch to zoom by the change in their separation. Checked before the drag,
+    // so a pinch never also orbits.
+    if (this.touches.has(event.pointerId)) {
+      this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (this.touches.size === 2) {
+        const [a, b] = [...this.touches.values()];
+        const span = Math.hypot(a!.x - b!.x, a!.y - b!.y);
+        if (this.pinchSpan > 0 && span > 0) this.zoom(this.pinchSpan / span);
+        this.pinchSpan = span;
+        return;
+      }
+    }
+
     if (this.drag) {
       const dx = event.clientX - this.drag.lastX;
       const dy = event.clientY - this.drag.lastY;
@@ -1247,12 +1488,27 @@ export class SolarSystemScene {
 
   private handlePointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return;
-    this.drag = { lastX: event.clientX, lastY: event.clientY, moved: 0 };
+    this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
     this.renderer.domElement.setPointerCapture(event.pointerId);
+    if (this.touches.size >= 2) {
+      // A second finger turns the gesture into a pinch; it is never a click.
+      this.drag = null;
+      this.pinchSpan = 0;
+      this.suppressNextClick = true;
+      return;
+    }
+    this.drag = { lastX: event.clientX, lastY: event.clientY, moved: 0 };
   };
 
   private handlePointerUp = (event: PointerEvent): void => {
-    if (!this.drag) return;
+    this.touches.delete(event.pointerId);
+    if (this.touches.size < 2) this.pinchSpan = 0;
+    if (!this.drag) {
+      if (this.renderer.domElement.hasPointerCapture(event.pointerId)) {
+        this.renderer.domElement.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
     const wasDrag = this.drag.moved > 4;
     this.drag = null;
     if (this.renderer.domElement.hasPointerCapture(event.pointerId)) {
@@ -1279,17 +1535,21 @@ export class SolarSystemScene {
   /** Double-click flies to a body, the gesture every map and planetarium uses. */
   private handleDoubleClick = (): void => {
     const hit = this.pick();
-    if (hit) this.frameBody(hit);
+    if (hit) this.frameTarget(hit);
   };
 
-  private pick(): BodyId | null {
+  /** The planet, Moon, Sun or small body under the pointer, by id. */
+  private pick(): string | null {
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const meshes = [...this.bodies.values()].filter((v) => v.shown).map((v) => v.mesh);
+    const meshes = [
+      ...[...this.bodies.values()].filter((v) => v.shown).map((v) => v.mesh),
+      ...[...this.smallBodies.values()].filter((v) => v.shown).map((v) => v.mesh),
+    ];
     const hits = this.raycaster.intersectObjects(meshes, false);
     const first = hits[0];
     if (!first) return null;
-    const id = first.object.userData.bodyId;
-    return typeof id === 'string' ? (id as BodyId) : null;
+    const id = first.object.userData.bodyId ?? first.object.userData.smallBodyId;
+    return typeof id === 'string' ? id : null;
   }
 
   resize = (): void => {

@@ -5,7 +5,27 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — a broader, usable, shareable app
+
+- **Dwarf planets, asteroids and comets.** Nineteen bodies (Ceres, Pluto, Eris, Haumea, Makemake,
+  Pallas, Vesta, Hygiea, Psyche, Eros, Itokawa, Bennu, Ryugu, Apophis, Phaethon, Halley, Encke,
+  67P, Tempel 1) with orbits from NASA/JPL's Small-Body Database, bundled so the app stays
+  offline. Selectable, flyable, with orbit data and an honest note on how old the elements are
+  (D-050). Refreshed by `scripts/fetch-small-bodies.mjs`.
+- **Maneuver-node editor.** Add, edit and delete burns in the local or inertial frame; the plan
+  re-propagates immediately, a late burn extends a two-body plan, and every bad entry is
+  explained beside its field. "Download scenario" now carries the plan as edited.
+- **Share links.** "Copy link to this view" encodes the scenario, instant, target, warp, layout
+  and camera in the URL fragment, which never reaches a server (D-051).
+- **Pinch-to-zoom** on touch screens.
+- **CI and deployment.** GitHub Actions run formatting, typecheck, lint, unit tests, the build
+  and the browser suite on every push, and publish the build to GitHub Pages from `master`.
+- `docs/ENGINEERING.md`: four bugs worth reading about. A rewritten README, a favicon and social
+  preview tags.
+
 ### Fixed
+
+- Light-time readout could print "4 min 60 s"; rounding now carries into the next unit.
 
 - **The Moon was drawn next to the Sun.** Bodies were drawn 282x too large, and satellites were
   pushed out by the same factor to clear them, which put the Moon 72 scene units from Earth while
