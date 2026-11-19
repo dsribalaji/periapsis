@@ -99,14 +99,19 @@ export function ScenarioFilePanel({ scenario, onImport, store, onClear }: Scenar
           </button>
         )}
         {/*
-          The input is visually hidden but reachable: `display: none` would take it out of the
-          accessibility tree, and a keyboard user could not trigger it.
+          The input is visually hidden but still the real control. `tabIndex={-1}` keeps it out of
+          the tab order so a keyboard user gets one stop, the visible button, rather than two
+          controls that do the same thing; clicking that button still opens the file dialog for
+          them. It keeps an `aria-label` anyway, because a control that can receive focus should
+          have a name even when the only route to it is through another control.
         */}
         <input
           ref={inputRef}
           type="file"
           accept=".json,application/json"
           className="visually-hidden"
+          tabIndex={-1}
+          aria-label="Open a file from disk"
           data-testid="scenario-import-input"
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -118,20 +123,20 @@ export function ScenarioFilePanel({ scenario, onImport, store, onClear }: Scenar
       </div>
 
       {loadedName && (
-        <p className="hint" data-testid="scenario-import-ok">
+        <p className="hint" role="status" data-testid="scenario-import-ok">
           Opened “{loadedName}”.
         </p>
       )}
 
       {cleared && (
-        <p className="hint" data-testid="scenario-clear-ok">
+        <p className="hint" role="status" data-testid="scenario-clear-ok">
           The saved scenario was cleared. This session is unaffected, and saving begins again the
           next time you choose a scenario.
         </p>
       )}
 
       {failure && !failure.ok && (
-        <div className="caveat" data-testid="scenario-import-error">
+        <div className="caveat" role="alert" data-testid="scenario-import-error">
           <p>{failure.summary}</p>
           {failure.issues.length > 1 && (
             <ul>

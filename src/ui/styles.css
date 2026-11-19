@@ -5,7 +5,20 @@
   --panel-border: #1e2431;
   --text: #dbe3ee;
   --text-dim: #8a96a8;
+  /*
+   * `--text-faint` is for text that is still meant to be read, just quietly: the "(opened file)"
+   * and unit suffixes. It is lighter than `--text-dim` on purpose - #8a96a8 measures 6.35:1 on the
+   * panel and this measures 8.0:1, so the dim tone stays reserved for secondary labels rather
+   * than being pushed toward the 4.5:1 minimum.
+   */
+  --text-faint: #949fb2;
   --accent: #58a6ff;
+  /*
+   * `--accent-dim` is a *fill*, not a text colour: white on it measures 4.63:1, which passes for
+   * large/bold text and UI boundaries but not for body text. Nothing sets text to this value; if
+   * something needs dimmed accent text it should use `--accent` and be large, or pick a darker
+   * fill. Measured pairs are recorded in TESTING.md.
+   */
   --accent-dim: #1f6feb;
   --warn: #d29922;
   --danger: #f85149;
@@ -45,6 +58,45 @@ body,
   position: relative;
   overflow: hidden;
   background: var(--bg);
+}
+
+/*
+ * Skip link. Off-screen until focused, then pinned over the canvas.
+ *
+ * Positioned with `inset-block-start` rather than `top` so it lands correctly if the page is ever
+ * laid out right-to-left, and moved with a transform rather than `left: -9999px` so it does not
+ * create a horizontal scroll region on a narrow viewport.
+ */
+.skip-link {
+  position: absolute;
+  z-index: 10;
+  top: 8px;
+  left: 8px;
+  padding: 7px 12px;
+  background: var(--accent);
+  color: #05060a;
+  font-weight: 600;
+  border-radius: 5px;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+}
+
+/*
+ * The skip link moves focus to the sidebar itself, which is programmatically focusable
+ * (`tabIndex={-1}`). It draws an inset outline so the person can see where focus went without
+ * the outline bleeding outside the panel and over the canvas. `:focus` rather than
+ * `:focus-visible`, because the only way to land here is the skip link and the browser's
+ * heuristic does not reliably treat that as keyboard-initiated.
+ */
+.sidebar:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .viewport canvas {
@@ -173,12 +225,6 @@ input[type='text'] {
   padding: 5px 7px;
 }
 
-button:focus-visible,
-select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
 .row {
   display: flex;
   gap: 6px;
@@ -186,20 +232,35 @@ select:focus-visible {
   flex-wrap: wrap;
 }
 
+/* A `ul` in the markup for the list semantics, with the markers and indentation removed. */
 .body-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
+/*
+ * A real `button`, so it needs the generic button look undone: the list is a set of rows, not
+ * a toolbar. `width: 100%` and `text-align: left` make the whole row a target and keep the
+ * labels flush with the rest of the sidebar.
+ */
 .body-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
   border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  text-align: left;
 }
 
 .body-row:hover {
@@ -520,9 +581,20 @@ select:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * {
+  /*
+   * The blanket rule is the important half: any transition or animation added later is off by
+   * default for a user who asked for that, without whoever adds it having to remember. The app's
+   * own motion is all in the 3D view, which is drag-driven rather than animated: a camera move
+   * happens on click or keypress and completes immediately, so there is nothing to disable there.
+   * The clock advancing is a simulation, not a transition, and stopping it would break the
+   * product rather than accommodate the preference - which is why it is not affected here.
+   */
+  *,
+  *::before,
+  *::after {
     transition: none !important;
     animation: none !important;
+    scroll-behavior: auto !important;
   }
 }
 

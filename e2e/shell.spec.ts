@@ -52,7 +52,9 @@ test.describe('application shell', () => {
   test('pausing stops the clock', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: 'Pause' }).click();
-    await expect(page.getByText('paused')).toBeVisible();
+    // Scoped to the badge: the live region also says "Paused", and a bare text match would now
+    // find two nodes. The badge is the visible one; the live region is for screen readers.
+    await expect(page.locator('.paused-badge')).toBeVisible();
 
     const time = page.locator('.sim-time');
     const frozen = await time.textContent();
@@ -1067,5 +1069,140 @@ test.describe('scenario files and persistence', () => {
     await page.reload();
     await expect(page.getByLabel('Scenario')).toHaveValue('inner-system');
     await expect(page.getByTestId('scenario-restore')).toHaveCount(0);
+  });
+});
+
+test.describe('accessibility', () => {
+  test('the skip link is the first tab stop and moves focus to the controls', async ({ page }) => {
+    await page.goto('/');
+    // Nothing is focused on load, so the first Tab has to land on the skip link rather than on
+    // the scenario picker. This is the whole point of the link and it is invisible to a
+    // screenshot, which is why it is asserted through focus rather than appearance.
+    await page.keyboard.press('Tab');
+    const skip = page.locator('.skip-link');
+    await expect(skip).toBeFocused();
+    // Off-screen until focused, then on-screen: the CSS is what makes it usable, so the test
+    // checks that the transform actually lifted it rather than trusting the rule exists.
+    const box = await skip.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#sidebar')).toBeFocused();
+    expect(page.url()).toContain('#sidebar');
+
+    // And the next Tab continues inside the controls, not from the top of the document.
+    await page.keyboard.press('Tab');
+    await expect(page.getByLabel('Scenario')).toBeFocused();
+  });
+
+  test('the 3D view is a labelled image, not an unlabelled canvas', async ({ page }) => {
+    await page.goto('/');
+    const view = page.locator('.viewport');
+    // `role="img"` rather than `application`: the canvas is a picture, and every number in it is
+    // also in the panels. An application role would swallow the global camera keys.
+    await expect(view).toHaveAttribute('role', 'img');
+    await expect(view).toHaveAttribute('aria-label', /Solar system 3D view/);
+    // The canvas lives inside that labelled region, so it is a picture *of* the announced image
+    // rather than a second, unnamed graphic. `role="img"` makes its subtree presentational, so
+    // no `aria-hidden` is needed on the canvas itself.
+    await expect(view.locator('canvas')).toHaveCount(1);
+  });
+
+  test('the ground-track map is described by its own summary', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    const canvas = page.getByTestId('ground-track-canvas');
+    await expect(canvas).toHaveAttribute('role', 'img');
+    // The label describes what is drawn rather than the file: sample count and coverage.
+    await expect(canvas).toHaveAttribute('aria-label', /samples over .* revolutions of longitude/);
+  });
+
+  test('the clock reports its pause state and warp to a screen reader', async ({ page }) => {
+    await page.goto('/');
+    const status = page.getByTestId('clock-status');
+    // The default scenario runs, and the status names the warp rather than the time.
+    await expect(status).toHaveText(/Running at 10k times real time/);
+
+    await page.getByRole('button', { name: 'Pause' }).click();
+    await expect(status).toHaveText('Paused');
+
+    await page.getByRole('button', { name: 'Play' }).click();
+    await expect(status).toHaveText(/Running at 10k times real time/);
+  });
+
+  test('the body list is a list of buttons that work from the keyboard', async ({ page }) => {
+    await page.goto('/');
+    const rows = page.locator('.body-list > li > button.body-row');
+    // Real buttons, not divs with a keydown handler: that is what gives Enter and Space for
+    // free, and it is what makes the list navigable by a screen reader's own shortcuts.
+    const mars = page.getByRole('button', { name: /^Mars/ });
+    await expect(mars).toHaveCount(1);
+    expect(await rows.count()).toBeGreaterThan(8);
+
+    await mars.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.readout dd').first()).toHaveText('Mars');
+    // Selected state is exposed, not just coloured.
+    await expect(mars).toHaveAttribute('aria-current', 'true');
+    await expect(page.getByRole('button', { name: /^Earth/ })).not.toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+
+  test('Space on a focused button presses that button and does not also pause', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    // A body row is a real button now, so Space presses it. The global Space shortcut must not
+    // also fire, or picking a body from the keyboard would stop the clock as a side effect.
+    const mars = page.getByRole('button', { name: /^Mars/ });
+    await mars.focus();
+    await page.keyboard.press(' ');
+
+    await expect(page.locator('.readout dd').first()).toHaveText('Mars');
+    await expect(page.locator('.paused-badge')).toHaveCount(0);
+    await expect(page.getByTestId('clock-status')).toHaveText(/Running at/);
+  });
+
+  test('Space still pauses when nothing focusable has it', async ({ page }) => {
+    await page.goto('/');
+    // Clicking the canvas leaves focus off the buttons, which is the case the shortcut is for.
+    await page.locator('.viewport canvas').click({ position: { x: 40, y: 40 } });
+    await page.keyboard.press(' ');
+    await expect(page.locator('.paused-badge')).toBeVisible();
+  });
+
+  test('an import failure is announced as an alert', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('scenario-import-input').setInputFiles({
+      name: 'broken.periapsis.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from('{ "schemaVersion": 1, "id": "" }', 'utf8'),
+    });
+    // `role="alert"` is what makes a failure audible at the moment it appears, rather than
+    // something the user finds by tabbing onward.
+    await expect(page.getByRole('alert')).toContainText('id');
+  });
+
+  test('honours a reduced-motion preference without stopping the clock', async ({ browser }) => {
+    const context = await browser.newContext({ reducedMotion: 'reduce' });
+    const page = await context.newPage();
+    await page.goto('/');
+
+    // Transitions are off...
+    const duration = await page
+      .getByRole('button', { name: 'Pause' })
+      .evaluate((el) => getComputedStyle(el).transitionDuration);
+    expect(Number.parseFloat(duration)).toBe(0);
+
+    // ...but a simulation is not an animation. The clock still runs, because stopping it would
+    // break the product rather than accommodate the preference.
+    const time = page.locator('.sim-time');
+    const first = await time.textContent();
+    await expect(time).not.toHaveText(first ?? '', { timeout: 8000 });
+
+    await context.close();
   });
 });

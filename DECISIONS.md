@@ -564,3 +564,50 @@ forward compatibility would mean guessing at fields this build has never seen, a
 half-loads is worse than one that refuses with both version numbers in the message. The refusal
 message names both, because "your file is from a newer build" without saying which build is not
 something a user can act on.
+
+## D-039 - Accessibility is done with real elements, and the clock is not an animation
+
+**Choice:** the interactive rows in the sidebar are native `button` elements inside a real `ul`,
+the canvases are `role="img"` with labels that describe what is drawn, the live region reports the
+pause state and warp step but never the simulated time, and reduced motion turns off transitions
+and animations but explicitly leaves the clock running.
+**Alternatives:** keep `div role="button" tabIndex={0}` with a keydown handler (it was already
+there and worked); use `role="application"` for the 3D view; announce every clock tick in the live
+region; pause the simulation under `prefers-reduced-motion`.
+**Why:** the div version was not broken so much as duplicated. Enter and Space, the focus ring, the
+"press" affordance and the screen reader's announcement of a button are all behaviour that the
+`button` element already has, and every one of them had to be re-implemented by hand on the div -
+with a real risk of drifting from the rest of the app, since the focus CSS only covered
+`button`/`select`/`input`. A native button cannot drift. `aria-current` then says which body is on
+screen, which is a different question from "pressed" and is exactly what the attribute is for.
+
+`role="application"` on the canvas would tell a screen reader to hand raw keystrokes to the page,
+which is right for an editor and wrong here: the camera keys are global, so the region does not
+need focus and taking it away from the panels would be a trap with no exit. `role="img"` says what
+is true - the canvas is a picture, and every number in it is also in the panels.
+
+The live region reports state, not the clock. A time that changes ten times a second is not
+information a person can use, and `aria-live="assertive"` on it would interrupt every other
+announcement in the page. Warp changes are deliberate user actions, so those are worth saying. The
+region is `polite` for that reason.
+
+Reduced motion is the one place where "respect the preference" and "the product works" pull apart.
+Transitions and animations are disabled with a `*` rule (including pseudo-elements) so anything
+added later is covered without the author remembering. The simulation is not an animation: it is
+the thing the app is for, the user controls its speed with the warp buttons, and stopping it on a
+preference meant for vestibular comfort would break the app to no benefit. The 3D camera needed no
+work either way - a camera move completes immediately, so there is no tween to disable.
+
+Contrast is measured rather than eyeballed, and the pairs are in TESTING.md. Two of them are
+records of a limit rather than a pass: `--accent-dim` as a fill reaches 4.63:1 against white text,
+which is fine for a button label at this size but is documented as a fill so nobody uses it for
+body text; and `--text-faint` was added rather than lightening `--text-dim`, because the dim tone
+is already at 6.35:1 and pulling it up would flatten the hierarchy for people who can read it.
+
+The pass also turned up a bug that had nothing to do with accessibility markup. The global keyboard
+handler paused on Space and did not check whether a button had focus, so once the body rows became
+real buttons, Space on one of them selected the body _and_ stopped the clock - the two behaviours
+each looked correct in isolation. The fix is a guard for the element types that own their own Space
+and Enter, and it is worth noting where it came from: making a widget native is what made the
+collision visible, because a `div role="button"` had been swallowing nothing and the test that now
+catches it could not have been written against the old markup in the same way.

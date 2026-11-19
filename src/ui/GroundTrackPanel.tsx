@@ -65,10 +65,23 @@ export function GroundTrackPanel({
       ) : (
         <>
           <div className="ground-track-map" data-testid="ground-track-map">
+            {/*
+              `role="img"` with a generated description, matching the porkchop plot. The canvas is
+              a picture: its value is the shape of the path, and the numbers under it are the
+              precise version. The label therefore describes what is drawn - how many samples,
+              how much longitude - rather than repeating the readouts below.
+            */}
             <canvas
               ref={canvasRef}
               className="ground-track-canvas"
               data-testid="ground-track-canvas"
+              role="img"
+              aria-label={
+                `Ground track on an equirectangular map, ${summary.sampleCount} samples over ` +
+                `${((summary.lonSpanRad * 180) / Math.PI / 360).toFixed(2)} revolutions of longitude` +
+                (summary.belowSurface ? ', part of it below the surface' : '') +
+                '. Latitude and longitude are read out below the map.'
+              }
             />
             {/*
               The marker is an absolutely positioned element rather than a pixel in the buffer,

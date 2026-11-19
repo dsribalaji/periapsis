@@ -164,7 +164,19 @@ delete one. Those items stay unticked rather than being checked off on the stren
       `boot.test.ts`, and 6 e2e tests covering download-and-reopen, a field-level import error, a
       non-JSON file, reload restore and forget-then-reload. Corrupt entries self-heal; a newer
       envelope is never overwritten. D-037.
-- [ ] M7.3 Accessibility pass (focus, contrast, reduced motion, shortcuts)
+- [x] M7.3 Accessibility pass (focus, contrast, reduced motion, shortcuts) - Skip link first in the document, moving focus to the sidebar (which gained
+      `tabIndex={-1}` so the browser really focuses it rather than only moving the sequential
+      focus point). `role="img"` on the 3D viewport and on both canvases, each with a label that
+      describes what is drawn. The body list became `ul > li > button` instead of `div
+    role="button"` with a keydown handler, so Enter, Space, focus order and the focus ring all
+      come from the element. `aria-current` marks the body on screen. A polite live region reports
+      pause state and warp but not the ticking time. Import failures are `role="alert"`. Every
+      filtered input's accessible name now starts with its visible label text. `--text-faint`
+      added at 8.0:1 and `--accent-dim` documented as a fill only; measured pairs in TESTING.md.
+      Reduced motion covers pseudo-elements and `scroll-behavior`, and the clock is deliberately
+      not affected. Fixed a real keyboard collision found during this pass: the global Space
+      shortcut also fired when a button had focus, so pressing Space on a body row both selected
+      it and paused the clock. 9 new e2e tests. D-039.
 - [ ] M7.4 Performance measurement with recorded numbers
 
 ## M8 — v1.0.0 hardening

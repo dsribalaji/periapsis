@@ -154,12 +154,44 @@ tests read them back with `getImageData` directly — the screenshot-decode path
 for the WebGL view.
 
 The ground-track tests deliberately split into two layers, because the failure modes are different.
-`tests/groundTrackView.test.ts` builds **synthetic** tracks for the projection and split rules — a
-live wire of latitudes and longitudes with the crossing flags already set — so a failure means the
+`tests/groundTrackView.test.ts` builds **synthetic** tracks for the projection and split rules - a
+live wire of latitudes and longitudes with the crossing flags already set - so a failure means the
 renderer is wrong rather than the ephemeris having moved. Two tests then run the same rules against
 the **real** frame chain (`leo-raise` must produce crossings; a craft at the Earth's centre must
 break the track), so the synthetic input cannot quietly drift away from what the core module
 actually emits.
+
+## Contrast
+
+Measured from the token values in `src/ui/styles.css` with the WCAG relative-luminance formula, not
+estimated by eye. Text pairs are held to 4.5:1 (normal text) and 3:1 (large text and UI
+boundaries); the numbers below are the ratio of foreground to background.
+
+| Pair                                    | Ratio | Use                                     |
+| --------------------------------------- | ----- | --------------------------------------- |
+| `--text` on `--bg`                      | 15.66 | body text over the canvas               |
+| `--text` on `--panel`                   | 14.71 | body text in the sidebar                |
+| `--text-faint` on `--panel`             | 8.00  | quiet suffixes, e.g. "(opened file)"    |
+| `--accent` on `--panel`                 | 7.53  | links, focus ring, active labels        |
+| `--warn` on `--panel`                   | 7.54  | caveats and the paused badge            |
+| `--text-dim` on `--panel`               | 6.35  | section headings, secondary labels      |
+| `--text-dim` on a hovered body row      | 5.88  | the distance column under the pointer   |
+| white on `--accent-dim` (active button) | 4.63  | large/bold only; a fill, not body text  |
+| `--accent-dim` on `--panel`             | 4.11  | the selected row's border (non-text)    |
+| `--text` on `--accent-dim`              | 3.58  | not used; recorded so it stays unused   |
+| `--accent` on `--accent-dim`            | 1.83  | not used; the reason `.active` is white |
+
+The last two rows are there on purpose. They are the pairs that would look plausible and fail, and
+recording them is what keeps a future change from reaching for `--accent-dim` as a text background.
+The 1.83 is the specific reason the active warp button sets `color: #fff` rather than leaving the
+accent colour in place - which is what it did before this pass.
+
+Accessibility itself is asserted in `e2e/shell.spec.ts`: the skip link is the first tab stop and
+moves focus to the sidebar, the 3D view and both canvases carry `role="img"` with a descriptive
+label, the body list is reachable and activatable by keyboard, the live region reports pause and
+warp, an import failure is an `alert`, and a reduced-motion context has zero transition duration
+while the clock still advances. Focus order, roles and announcements have no visual signature, so
+they are the one part of the UI that only an end-to-end test can check at all.
 
 The bundled scenarios are covered from two directions, and both are needed. `scenario.test.ts`
 validates every entry structurally, so a malformed scenario cannot ship. It also re-derives the

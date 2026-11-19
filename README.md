@@ -72,7 +72,7 @@ To check it:
 
 ```
 npm run verify     # typecheck + lint + 664 unit tests + build
-npm run test:e2e   # 53 Playwright tests against the real app
+npm run test:e2e   # 62 Playwright tests against the real app
 ```
 
 ## Stack
@@ -90,7 +90,7 @@ convention, so the boundary cannot quietly erode (ADR-0001).
 | ------------------- | ------------------------------------------ |
 | `npm run dev`       | Vite dev server on http://localhost:5183   |
 | `npm test`          | unit tests (664)                           |
-| `npm run test:e2e`  | Playwright end-to-end tests (53)           |
+| `npm run test:e2e`  | Playwright end-to-end tests (62)           |
 | `npm run typecheck` | `tsc` with strict settings                 |
 | `npm run lint`      | ESLint, including the core-purity boundary |
 | `npm run build`     | typecheck + production build               |

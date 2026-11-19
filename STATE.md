@@ -22,9 +22,9 @@ Last full run: `npm run verify` (2026-11-19) and `npx playwright test`.
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
 | Unit tests (`vitest run`)   | PASS, 664 tests / 28 files                               |
-| Build (`vite build`)        | PASS, 860.06 kB JS (235.12 kB gzip)                      |
+| Build (`vite build`)        | PASS, 860.96 kB JS (235.42 kB gzip)                      |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
-| E2E (`npx playwright test`) | PASS, 53 tests against the real app in headless Chromium |
+| E2E (`npx playwright test`) | PASS, 62 tests against the real app in headless Chromium |
 
 All six were run, not inferred. The e2e suite starts its own dev server and drives the real
 page: it asserts React mounts, a WebGL canvas is created and sized, the clock advances while
@@ -104,6 +104,20 @@ A refused import leaves the current scenario untouched, so a bad file cannot tak
 from where the user was. And clearing the store does not change the current session - the user
 asked to forget what is saved, not to be thrown back to the default mid-task (D-037).
 
+Accessibility is covered by nine e2e tests rather than unit tests, because focus order, roles and
+live announcements have no visual or arithmetic signature. They assert that the skip link is the
+first tab stop and really moves focus into the sidebar, that the 3D view and both canvases expose
+`role="img"` with descriptive labels, that the body list is reachable and activatable with Enter
+and Space, that the live region tracks pause and warp, that an import failure is an alert, and that
+a reduced-motion context has zero transition duration while the clock still advances. Contrast is
+not tested but measured: every text pair is recorded in TESTING.md, including the two that fail and
+why they are not used.
+
+That pass found a genuine bug rather than only tidying. The global Space shortcut did not check
+what had focus, so pressing Space on a newly-native body button selected the body and paused the
+clock at the same time. Two tests now pin the behaviour in both directions: Space on a focused
+button presses only that button, and Space with nothing focused still pauses.
+
 Note on the browser: the paired interactive browser extension was not connected, so
 verification ran through Playwright's Chromium with software GL
 (`--use-gl=swiftshader`). That is a real browser executing the real bundle, but it is not
@@ -141,7 +155,7 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/scenarioIo.test.ts`      | 23    | export round trip, filenames, import errors, hostile ids           |
 | `tests/persist.test.ts`         | 17    | envelope, corrupt/newer handling, refusing stores, round trip      |
 | `tests/boot.test.ts`            | 7     | restore, discard, preserve-newer, no store, custom ids             |
-| `e2e/shell.spec.ts`             | 53    | boot, WebGL, clock, picking, drag, zoom, mission, plot, map, files |
+| `e2e/shell.spec.ts`             | 62    | boot, WebGL, clock, picking, drag, mission, plot, map, files, a11y |
 
 ## Module inventory
 
@@ -230,7 +244,7 @@ replays a measured trajectory rather than searching for one).
 | M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
 | M5 mission planning       | done (M5.1–M5.5)                                                 |
 | M6 ground track + Moon    | done (M6.1 physics, M6.2 panel, M6.3 free return)                |
-| M7 scenarios + polish     | M7.1 migration and M7.2 persistence/files done; M7.3, M7.4 open  |
+| M7 scenarios + polish     | M7.1, M7.2 and M7.3 done; M7.4 open                              |
 | M8 hardening              | not started                                                      |
 
 ## Known limitations carried forward
@@ -344,3 +358,16 @@ replays a measured trajectory rather than searching for one).
   "Forget saved scenario" control because there is nothing to forget, and nothing claims a save
   happened. There is no persistent banner for it; a visit in that state is indistinguishable from
   a first visit by design.
+- **Keyboard shortcuts are global and only partly scoped.** Space, the arrow keys, `+`/`-` and F work
+  anywhere except inside a text field or on a focused button or link, where the element's own
+  behaviour wins. There is no shortcut to disable them, no remapping, and no `aria-keyshortcuts`
+  attribute, so a screen reader user has to read the hint in the View section to learn they exist.
+  A full shortcut registry was out of scope for this milestone.
+- **Accessibility is verified by automation, not by a person using assistive technology.** The e2e
+  tests check roles, names, focus order and announcements in Chromium; they cannot say whether the
+  app is pleasant to use with NVDA or VoiceOver, and no manual screen-reader pass has been done.
+  The 3D view is a labelled image, so a non-visual user gets its description and the numbers in
+  the panels rather than a rendering of the scene.
+- **The 3D view has no keyboard camera control beyond framing.** The global keys frame a body, zoom
+  by a step and reset the view; there is no way to orbit with the keyboard, so a user who cannot
+  drag cannot change the viewing angle.

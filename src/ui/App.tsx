@@ -423,6 +423,18 @@ export function App(): React.JSX.Element {
       const target = e.target as HTMLElement | null;
       if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return;
 
+      /*
+       * A focused control has its own keys. Without this, Space on a focused button would both
+       * press the button and toggle pause: the button's activation and this handler would fire
+       * for the same keystroke. Arrow keys are the same problem for a focused select or radio
+       * group. The shortcut still works from anywhere else, including after clicking a button
+       * with the mouse, because that leaves focus on the button but a subsequent Space is
+       * precisely the user asking to press it.
+       */
+      if (target && (target.tagName === 'BUTTON' || target.tagName === 'A')) {
+        if (e.code === 'Space' || e.key === 'Enter') return;
+      }
+
       if (e.code === 'Space') {
         e.preventDefault();
         togglePause();
@@ -486,7 +498,28 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app">
-      <div className="viewport" ref={viewportRef} aria-label="Solar system 3D view">
+      {/*
+        The first thing in the document and the first thing a keyboard reaches. Without it, a
+        keyboard user tabs through a scenario picker, a file panel, a body list, a mission panel
+        and a porkchop form before reaching the same controls they could have reached at the
+        start: the canvas itself is not a tab stop, and the scene is controlled by keys that work
+        from anywhere.
+      */}
+      <a className="skip-link" href="#sidebar">
+        Skip to controls
+      </a>
+      {/*
+        `role="img"` with a label rather than `role="application"`: the canvas is a picture of the
+        system, and the same information is in the panels beside it. Announcing it as an
+        application would trap screen-reader users in a key-swallowing region with no way out.
+        The camera keys are global, so nothing here needs to take focus.
+      */}
+      <div
+        className="viewport"
+        ref={viewportRef}
+        role="img"
+        aria-label="Solar system 3D view. Drag to orbit, scroll to zoom, or use the controls in the sidebar."
+      >
         {display.webglError && (
           <div style={{ padding: 24, maxWidth: 520 }}>
             <p className="caveat">{display.webglError}</p>
@@ -494,7 +527,14 @@ export function App(): React.JSX.Element {
         )}
       </div>
 
-      <aside className="sidebar">
+      {/*
+        `tabIndex={-1}` so the skip link can actually move focus here. A fragment link only
+        moves the *sequential focus starting point* in most browsers, leaving `document.activeElement`
+        on the body; with `-1` the browser focuses the region itself, so the next Tab continues
+        from the controls rather than from the top of the page. It is not in the tab order, so
+        nobody lands here by tabbing past it.
+      */}
+      <aside className="sidebar" id="sidebar" aria-label="Controls" tabIndex={-1}>
         <div className="brand">
           <h1>Periapsis</h1>
           <span className="version">v0.1.0-dev</span>
@@ -589,36 +629,38 @@ export function App(): React.JSX.Element {
 
         <div className="section">
           <h2>Bodies</h2>
-          <div className="body-list">
+          {/*
+            A list of real buttons rather than `div role="button"` with a keydown handler: Enter,
+            Space, focus order and the focus ring all come from the element, so none of them can
+            drift out of sync with the app's own idea of what a button is. `aria-current` marks
+            the body on screen; it is "which one is being shown", not "which one is pressed", and
+            there is exactly one at a time.
+          */}
+          <ul className="body-list">
             {BODY_DISPLAY.map((b) => {
               const d = display.distances.get(b.id);
-              const select = () => {
-                setSelected(b.id);
-                sceneRef.current?.frameBody(b.id);
-              };
+              const isCurrent = b.id === selected;
               return (
-                <div
-                  key={b.id}
-                  className={`body-row${b.id === selected ? ' selected' : ''}`}
-                  onClick={select}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      select();
-                    }
-                  }}
-                >
-                  <span className="swatch" style={{ background: b.color }} />
-                  <span className="name">{b.label}</span>
-                  <span className="dist">
-                    {d === undefined || b.id === 'sun' ? '' : `${(d / AU_M).toFixed(3)} AU`}
-                  </span>
-                </div>
+                <li key={b.id}>
+                  <button
+                    type="button"
+                    className={`body-row${isCurrent ? ' selected' : ''}`}
+                    aria-current={isCurrent ? 'true' : undefined}
+                    onClick={() => {
+                      setSelected(b.id);
+                      sceneRef.current?.frameBody(b.id);
+                    }}
+                  >
+                    <span className="swatch" style={{ background: b.color }} aria-hidden="true" />
+                    <span className="name">{b.label}</span>
+                    <span className="dist">
+                      {d === undefined || b.id === 'sun' ? '' : `${(d / AU_M).toFixed(3)} AU`}
+                    </span>
+                  </button>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </div>
 
         <div className="section">
@@ -648,7 +690,7 @@ export function App(): React.JSX.Element {
           <p className="hint">
             Drag to orbit, scroll to zoom. Space pauses, arrow keys change speed, F frames the
             selected body.
-          </p>
+          </p>{' '}
           <p className="hint" data-testid="offscreen-note">
             {offScreenNames.length === 0
               ? 'Every body is on screen.'
@@ -698,6 +740,21 @@ export function App(): React.JSX.Element {
             coarse steps
           </span>
         )}
+        {/*
+          Polite, because the clock changes constantly and an assertive region would interrupt a
+          screen reader mid-sentence on every tick. It reports only the pause state and the warp
+          step, not the simulated time: a time that updates ten times a second is noise, and a
+          user who wants the time can read the visible readout. Changing warp is a deliberate
+          action, so it is worth announcing.
+        */}
+        <span
+          className="visually-hidden"
+          role="status"
+          aria-live="polite"
+          data-testid="clock-status"
+        >
+          {warp === 0 ? 'Paused' : `Running at ${formatWarp(warp)} times real time`}
+        </span>
         <span className="hint" style={{ marginLeft: 'auto' }}>
           offline · no data leaves this machine
         </span>

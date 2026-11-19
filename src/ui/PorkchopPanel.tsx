@@ -225,8 +225,16 @@ export function PorkchopPanel({
         <div className="row">
           <label className="field">
             <span>From</span>
+            {/*
+              Each control is wrapped in a `label`, and also carries an `aria-label` that *starts
+              with* the visible text. The wrapping label alone would name these "From", "To" and
+              "to", which is not enough to tell two of them apart; a bare `aria-label` that
+              replaced the visible text would break voice control, because a user saying what
+              they can see ("From") would not match the name. Starting the name with the visible
+              text satisfies both.
+            */}
             <select
-              aria-label="Departure body"
+              aria-label="From: departure body"
               value={request.departureBody}
               onChange={(e) =>
                 update('departureBody', e.target.value as PorkchopRequest['departureBody'])
@@ -242,7 +250,7 @@ export function PorkchopPanel({
           <label className="field">
             <span>To</span>
             <select
-              aria-label="Arrival body"
+              aria-label="To: arrival body"
               value={request.arrivalBody}
               onChange={(e) =>
                 update('arrivalBody', e.target.value as PorkchopRequest['arrivalBody'])
@@ -262,7 +270,7 @@ export function PorkchopPanel({
             <span>Depart from</span>
             <input
               type="text"
-              aria-label="Departure window start"
+              aria-label="Depart from: departure window start"
               value={request.departureStartIso}
               onChange={(e) => update('departureStartIso', e.target.value)}
             />
@@ -271,7 +279,7 @@ export function PorkchopPanel({
             <span>to</span>
             <input
               type="text"
-              aria-label="Departure window end"
+              aria-label="To: departure window end"
               value={request.departureEndIso}
               onChange={(e) => update('departureEndIso', e.target.value)}
             />
@@ -283,7 +291,7 @@ export function PorkchopPanel({
             <span>Flight time</span>
             <input
               type="text"
-              aria-label="Shortest time of flight, days"
+              aria-label="Flight time: shortest time of flight, days"
               value={String(request.minTofDays)}
               onChange={(e) => update('minTofDays', Number(e.target.value))}
             />
@@ -292,7 +300,7 @@ export function PorkchopPanel({
             <span>to</span>
             <input
               type="text"
-              aria-label="Longest time of flight, days"
+              aria-label="To: longest time of flight, days"
               value={String(request.maxTofDays)}
               onChange={(e) => update('maxTofDays', Number(e.target.value))}
             />
@@ -425,12 +433,12 @@ export function PorkchopPanel({
             )}
 
             {departureIssue && (
-              <p className="caveat" data-testid="porkchop-departure-issue">
+              <p className="caveat" role="alert" data-testid="porkchop-departure-issue">
                 {departureIssue}
               </p>
             )}
             {departureNote && (
-              <p className="hint" data-testid="porkchop-departure-note">
+              <p className="hint" role="status" data-testid="porkchop-departure-note">
                 {departureNote}
               </p>
             )}
