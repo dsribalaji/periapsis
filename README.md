@@ -220,4 +220,4 @@ Screenshots are regenerated with `node scripts/capture-readme.mjs` against a run
 
 ## Licence
 
-Not yet chosen.
+MIT. See [LICENSE](LICENSE).
