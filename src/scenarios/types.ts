@@ -34,11 +34,16 @@ export interface ScenarioView {
   /** Camera distance from the target, scene units. */
   readonly distanceUnits: number;
   /**
-   * What the camera looks at. The Sun is right for a system-wide view; the focus body is
-   * right when the scenario is about a pair (Earth and Moon), where a 60-unit camera aimed
-   * at the Sun would show neither.
+   * What the camera looks at.
+   *
+   * - `sun` — a system-wide view, for the inner or whole system.
+   * - `focus` — the selected body, for a single planet or a craft's orbit around it.
+   * - `pair` — the midpoint between the selected body and its parent. Needed for the
+   *   Earth-Moon view: now that the Moon is drawn at its true 72-unit separation, a camera
+   *   aimed at *either* endpoint puts the other one off the edge of the frame. Aiming at the
+   *   midpoint is the only framing that shows both.
    */
-  readonly centeredOn: 'sun' | 'focus';
+  readonly centeredOn: 'sun' | 'focus' | 'pair';
 }
 
 export interface Scenario {

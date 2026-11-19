@@ -17,12 +17,18 @@ Snapshot of where the build actually stands. Updated at the end of every iterati
 
 Last full run: `npm run verify` (2026-11-19) and `npx playwright test`, at tag `v1.0.0`.
 
+A visual pass after v1.0.0 (uncommitted at the time of writing) fixed the reported Moon/Earth
+overlap and unreal body sizes. It adds 5 tests (672 / 30 files) and two scripts that measure
+rather than assert: `scripts/measure-startup.mjs` (first interaction) and
+`scripts/count-mission-pixels.mjs` (whether a trajectory is actually on screen). Details are in
+`DECISIONS.md` D-043 to D-046.
+
 | Check                       | Result                                                   |
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 667 tests / 29 files                               |
-| Build (`vite build`)        | PASS, 860.96 kB JS (235.42 kB gzip)                      |
+| Unit tests (`vitest run`)   | PASS, 672 tests / 30 files                               |
+| Build (`vite build`)        | PASS, 869.62 kB JS (238.72 kB gzip)                      |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
 | E2E (`npx playwright test`) | PASS, 62 tests against the real app in headless Chromium |
 
@@ -154,8 +160,8 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/lambert.test.ts`         | 35    | Hohmann/bi-elliptic/plane change + Lambert solver                  |
 | `tests/clock.test.ts`           | 21    | warp, step budget, frame-rate independence, formatting             |
 | `tests/simulation.test.ts`      | 15    | epoch/JD handling, body positions, determinism, reset              |
-| `tests/scale.test.ts`           | 21    | scene scale, radius compression, radial mapping                    |
-| `tests/scenario.test.ts`        | 46    | scenario schema, validation, catalogue, free-return physics        |
+| `tests/scale.test.ts`           | 22    | scene scale, radius compression, satellite ratio, radial mapping   |
+| `tests/scenario.test.ts`        | 47    | scenario schema, validation, catalogue, free-return physics        |
 | `tests/maneuver.test.ts`        | 23    | node frames, magnitudes, ordering, Δv totals                       |
 | `tests/trajectory.test.ts`      | 25    | propagation modes, burns in-frame, Δv accounting, Hohmann arc      |
 | `tests/craft.test.ts`           | 18    | circular orbit states, frames, periods, speeds, clearance          |
@@ -170,6 +176,7 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/migrate.test.ts`         | 15    | version gate, chain ordering, gaps, validation after migrating     |
 | `tests/scenarioIo.test.ts`      | 23    | export round trip, filenames, import errors, hostile ids           |
 | `tests/persist.test.ts`         | 17    | envelope, corrupt/newer handling, refusing stores, round trip      |
+| `tests/placement.test.ts`       | 3     | planets on the radial mapping, satellites parent-relative, clear    |
 | `tests/boot.test.ts`            | 7     | restore, discard, preserve-newer, no store, custom ids             |
 | `tests/version.test.ts`         | 3     | version injected from package.json, format, single source          |
 | `e2e/shell.spec.ts`             | 62    | boot, WebGL, clock, picking, drag, mission, plot, map, files, a11y |
@@ -263,6 +270,7 @@ replays a measured trajectory rather than searching for one).
 | M6 ground track + Moon    | done (M6.1 physics, M6.2 panel, M6.3 free return)                |
 | M7 scenarios + polish     | done (M7.1–M7.4)                                                 |
 | M8 hardening              | done (M8.1–M8.4), v1.0.0 tagged locally                          |
+| Visual pass (post-v1.0.0) | done, uncommitted: satellite scale, textures, wider track lines, pair framing |
 
 ## Known limitations carried forward
 
@@ -278,6 +286,12 @@ replays a measured trajectory rather than searching for one).
   is not to scale. Body radii are cube-root compressed in both modes. All three compromises
   are labelled in the UI rather than left implicit, and the View panel names exactly which
   bodies are off screen at the current camera distance.
+- Satellite scale is a third rule on top of those two (PHYSICS.md 10.3): the Moon is drawn at
+  its true radius ratio to Earth and placed at Earth's own exaggeration, which is the only way
+  it can be outside the planet and agree with the trajectories drawn around it. In the
+  compressed layout there is no room for a 72-unit satellite offset, so the Moon is drawn at
+  three parent radii instead. Surface textures are procedural and plausible rather than real —
+  Earth's continents are noise, not coastlines.
 - Drag-to-orbit and wheel zoom are wired to pointer events on the canvas, with pointer
   capture and drag-versus-click suppression so orbiting never reselects a body. There is no
   touch gesture handler beyond what pointer events give for free: one-finger drag orbits,

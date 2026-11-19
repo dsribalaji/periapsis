@@ -482,13 +482,56 @@ jump it; in v1 the honest description is that the drawn line is body-relative, a
 panel reports heliocentric-crossing facts (impact, apoapsis) as numbers. Recorded as a limitation
 rather than a plan.
 
-### 10.3 Scale: trajectories reuse the body's own exaggeration
+### 10.3 Scale: two rules, for two kinds of body
 
 Body radii are cube-root compressed while positions are linear (§ ARCHITECTURE, `scale.ts`),
 so the two differ by about 282× for Earth. A 400 km orbit at the linear scale is 2.7e-3
 scene units — under a pixel, and inside Earth's 1.2-unit drawn mesh.
 
-Trajectory offsets therefore use `bodyRelativeScale(bodyId, radiusM)` = drawn radius / true
+The same mismatch applies to **bodies themselves**, and until M8.5 it was not corrected. A
+planet is fine: the Sun is 1 AU away and 5.7 units wide, so both are visible. A *satellite* is
+not. The Moon's true offset at the linear scale is 0.257 scene units while Earth is drawn at
+radius 1.200, so the Moon was drawn **inside** the planet it orbits — and a 1.6× "visibility"
+fudge made it 1.245 units, **larger than Earth**. Both were visible in the app and no test
+covered placement, so both shipped.
+
+There are now two explicit rules, chosen by body class:
+
+**Planets (anything with no parent, or whose parent is the Sun)** use cube-root radius
+compression and the heliocentric radial mapping for position. Applying the parent-relative
+rule to a planet is wrong by a factor of about 12: Earth would be placed 1,233 units from the
+Sun instead of 100, off the side of every camera. That regression was made and caught during
+this change; `tests/placement.test.ts` now pins it.
+
+**Satellites (parent is not the Sun)** use two true-ratio rules:
+
+- *Radius* is the **true ratio to the parent**, carried by the parent's drawn radius. Earth's
+  drawn 1.200 × (1737 / 6371) = 0.327 units for the Moon; the 0.35 clickability floor lifts it
+  to 0.350, so the drawn ratio is 0.292 against a true 0.273 — a 7% clamp, not a 240% fudge.
+- *Position* is the parent-relative offset at the parent's own exaggeration — the same
+  `bodyRelativeScale` §10.3 already used for trajectories. The Moon lands 72.40 units out.
+
+The consequence is that a satellite's drawn radius and its drawn separation use **one** scale,
+which is the parent's, and that scale is also the one trajectories use. A craft flying to the
+Moon and the Moon itself are therefore in the same frame; before this change the free-return
+trajectory drew its lunar flyby at 72.4 units while the Moon was drawn at 0.257, so the
+spacecraft flew past a Moon that was not there.
+
+| Quantity                       | Before   | After  | Truth       |
+| ------------------------------ | -------- | ------ | ----------- |
+| Moon drawn radius              | 1.245    | 0.350  | 0.327       |
+| Earth drawn radius             | 1.200    | 1.200  | 1.200       |
+| Drawn Moon/Earth radius ratio  | 1.04     | 0.292  | 0.273       |
+| Moon drawn offset from Earth   | 0.257    | 72.40  | 72.40 (rel) |
+| Free-return flyby drawn at     | 72.4     | 72.40  | matches     |
+
+**In the compressed (log-radius) whole-system layout** these numbers do not apply. The map
+compresses *distance* logarithmically to show ordering, so a 72-unit satellite offset is
+meaningless there and would strand the Moon on its own ring outside its planet. Satellites are
+drawn at three parent radii instead, and read as a system rather than a stray dot. This is a
+third scale, and it is applied only in that mode.
+
+Trajectory offsets continue to use `bodyRelativeScale(bodyId, radiusM)` = drawn radius / true
 radius, in scene units per metre. The consequences, all of which are correct _about that one
 body_:
 
@@ -498,11 +541,11 @@ body_:
 | GEO (35,786 km)   | 6.61                         | 6.61        |
 | Moon (384,400 km) | 60.3                         | 60.3        |
 
-So the local geometry is right, but it is **not** to scale against the heliocentric layout:
-the Moon is drawn at 60 Earth-drawn-radii = 72 units while its real scene position is about
-0.03 units from Earth on the linear layout. A trajectory and the body it orbits therefore
-share a scale, and nothing else does. This is the same compromise the body radii already
-make, extended to one more object, and it is stated in the UI caveat.
+So the local geometry is right, but it is **not** to scale against the heliocentric layout: the
+Moon is drawn at 60 Earth-drawn-radii = 72 units while its real scene position is about 0.03
+units from Earth on the linear layout. A trajectory and the body it orbits therefore share a
+scale, and nothing else does. Since M8.5, the satellite body shares that scale too — the
+compromise is unchanged, but the Moon is no longer the one object exempt from it.
 
 ### 10.4 Inclination datum
 
@@ -529,6 +572,14 @@ These are geometric identities, not approximations, so they are asserted tightly
 - **Segment times are strictly ascending**, so "already flown" is always a prefix and
   `drawRange` can encode it. A mid-path envelope clip drops segments but does not reorder
   them.
+- **A satellite is drawn clear of its parent** — its drawn offset exceeds the sum of both drawn
+  radii — at 1e-6 restraint, not as a hand-tuned margin (§10.3).
+- **A planet's drawn position is the radial mapping's**, not the parent-relative one: the two
+  differ by more than 500 scene units for Earth, so a test can tell them apart without ambiguity
+  (`tests/placement.test.ts`).
+- **A satellite's radius ratio survives the clickability floor**: the drawn Moon/Earth ratio is
+  within 10% of the true 0.273. The floor costs 7%; the removed fudge cost 240%, which is why
+  the tolerance is a bound rather than equality.
 
 ## 11. Porkchop plots
 

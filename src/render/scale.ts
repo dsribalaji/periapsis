@@ -21,7 +21,7 @@
  */
 
 import { AU_M } from '../core/constants.js';
-import type { BodyId } from '../core/ephemeris/solarSystem.js';
+import { BODIES, type BodyId } from '../core/ephemeris/solarSystem.js';
 
 /** Scene units per astronomical unit. Chosen so 1 AU ≈ 100 units: comfortable camera range. */
 export const UNITS_PER_AU = 100;
@@ -46,11 +46,54 @@ export function displayRadius(bodyRadiusM: number): number {
 /** A minimum on-screen size so that small bodies stay clickable. */
 export const MIN_DISPLAY_RADIUS = 0.35;
 
+/**
+ * Display radius for a body, in scene units.
+ *
+ * Two rules, because a planet and a *satellite* have different jobs to do on screen.
+ *
+ * **Heliocentric bodies** (the Sun and the planets — anything whose parent is the Sun or which
+ * has no parent) use the cube-root compression. Their true sizes span 1e6 and their distances
+ * span 1e2 AU, so some compression is unavoidable; cube root keeps the ordering and the rough
+ * ranking while fitting everything on one screen. This must not be "true ratio to the parent"
+ * for planets: Earth's true radius is 1/109 of the Sun's, which would draw it at 0.05 units and
+ * the whole solar system as dust.
+ *
+ * **Satellites** (a body whose parent is not the Sun, i.e. the Moon) are drawn at their **true
+ * radius ratio to their parent**, carried by the parent's own display radius. This is not a
+ * cosmetic choice. Cube root gave the Moon 0.648 of Earth's drawn radius against a true 0.273 —
+ * a Moon 2.4x too large, and, with the old 1.6x "visibility" fudge, *larger than the Earth it
+ * orbits*. A satellite is always viewed as a member of a system the camera has already zoomed
+ * into, so there is no dynamic-range argument for distorting it.
+ */
 export function displayRadiusFor(id: BodyId, radiusM: number): number {
-  // The Moon is deliberately drawn larger than its true relative size would give, so it is
-  // visible next to Earth at solar-system zoom.
-  if (id === 'moon') return Math.max(MIN_DISPLAY_RADIUS, displayRadius(radiusM) * 1.6);
+  const parent = BODIES[id].parent;
+  const isSatellite = parent !== null && parent !== 'sun';
+  if (isSatellite && parent) {
+    const parentDef = BODIES[parent];
+    const parentDrawn = displayRadiusFor(parent, parentDef.radius);
+    // True size ratio, carried by the parent's drawn scale: Earth's diameter is 3.67 Moons,
+    // and that ratio now survives onto the screen.
+    return Math.max(MIN_DISPLAY_RADIUS, parentDrawn * (radiusM / parentDef.radius));
+  }
   return Math.max(MIN_DISPLAY_RADIUS, displayRadius(radiusM));
+}
+
+/**
+ * Where a body sits in scene units relative to its parent, for a true parent-relative offset.
+ *
+ * Bodies on heliocentric orbits are placed by the radial mapping, which is honest about the
+ * *layout*. A satellite cannot be: the Moon's true offset at the linear scale is 0.257 scene
+ * units while the Earth is drawn at radius 1.2, so the Moon would be drawn **inside** the
+ * planet it orbits. It is therefore placed at the parent's own exaggeration — the same
+ * `drawn radius / true radius` factor trajectories already use (§10.3) — which puts the Moon
+ * 72.4 units out and makes it agree with the drawn trajectory rather than contradict it.
+ */
+export function parentRelativeOffset(
+  parent: BodyId,
+  parentRadiusM: number,
+  offsetM: number,
+): number {
+  return offsetM * (displayRadiusFor(parent, parentRadiusM) / parentRadiusM);
 }
 
 /** Radial mapping from physics distance to scene units. */

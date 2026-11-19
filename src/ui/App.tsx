@@ -177,6 +177,7 @@ export function App(): React.JSX.Element {
       scene.updatePositions(sim.positions());
       scene.setCamera(next.view);
       if (next.view.centeredOn === 'focus') scene.centerOn(next.focus);
+      else if (next.view.centeredOn === 'pair') scene.centerOnPair(next.focus);
     },
     [sim],
   );
@@ -354,6 +355,7 @@ export function App(): React.JSX.Element {
     scene.updatePositions(sim.positions());
     scene.setCamera(initial.view);
     if (initial.view.centeredOn === 'focus') scene.centerOn(initial.focus);
+    else if (initial.view.centeredOn === 'pair') scene.centerOnPair(initial.focus);
     scene.render();
 
     return () => {
