@@ -120,6 +120,23 @@ prose carried an apogee and a return altitude that were arithmetically wrong (a 
 is really 686 km, 7,045 minus 6,371). Prose is not compiled, so a number in it needs to come from
 an output buffer, not from a previous draft.
 
+A ninth, from M7.2: **when the failure modes want different responses, model them separately at
+the type level.** The first version of `loadScenario` returned `{ ok: false, reason: 'unreadable' }`
+for both "the browser will not give me storage" and "the stored copy came from a newer build". The
+app only needed to tell them apart at one point - whether it may overwrite the entry - and the
+consequence of getting it wrong is silent data loss: a newer build's scenario replaced by a
+default. Splitting `unreadable` into `unreadable` and `newer`, and then asserting the split in a
+boot test that checks the store is byte-identical afterwards, turned a policy that lived in a
+comment into one the compiler and the test both enforce. A boolean `ok` would have been enough to
+load a scenario; it is not enough to decide what a failure is allowed to destroy.
+
+The same milestone's e2e block produced a rule worth keeping: **an accepted-looking test can be
+asserting the wrong layer.** Six tests passed on the first run, which is pleasant and also a
+reason to check what they would catch. The reload test asserts the mission panel's planned delta-v
+after the reload, not just the select's value, because restoring the dropdown alone would pass
+while the spacecraft stayed on the default's orbit - the select is state, the plan is what that
+state is supposed to produce.
+
 ## Coverage
 
 `vitest` reports coverage over `src/core`, `src/sim` and `src/scenarios` only. `src/render` and

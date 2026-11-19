@@ -3,15 +3,15 @@
 An offline orbital mechanics sandbox and mission designer. Runs entirely in the browser,
 needs no account, no server and no network at runtime.
 
-**Status: in development.** The physics core is complete and tested (602 unit tests); the 3D
+**Status: in development.** The physics core is complete and tested (664 unit tests); the 3D
 application shell runs with scenario loading, mouse camera control, time controls and a working
-mission layer — a spacecraft flies a planned path drawn in the view, with maneuver nodes and a
+mission layer - a spacecraft flies a planned path drawn in the view, with maneuver nodes and a
 delta-v budget. A porkchop plot finds interplanetary launch windows by solving Lambert's problem
 over a grid of departure dates and flight times, and a chosen cell can be turned into a real
 departure burn on the spacecraft's parking orbit. A ground-track panel projects the sub-satellite
-path onto a 2D world map. The node _editor_ (edit/delete) and the arrival half of a transfer are
-not built yet. See `STATE.md` for what actually runs today and `PLAN.md` for the milestone
-backlog.
+path onto a 2D world map, and a scenario can be saved in the browser or written to a JSON file and
+opened again. The node _editor_ (edit/delete) and the arrival half of a transfer are not built yet.
+See `STATE.md` for what actually runs today and `PLAN.md` for the milestone backlog.
 
 ## What works today
 
@@ -23,6 +23,12 @@ and press "Plan departure" and the cell becomes a maneuver node on the craft —
 burn out of its parking orbit, with the Oberth effect, the plane-change penalty the geometry
 forces, and the timing shift onto the cheapest point of the orbit all reported rather than
 assumed.
+
+The scenario in use is remembered in the browser, so a reload returns to it instead of the
+default, and it can be downloaded as a JSON file and opened again - by hand-editing the file you
+can fork a bundled scenario, and a bad file is refused with the field that failed rather than with
+"invalid". Nothing leaves the machine: storage is `localStorage` on the page's own origin, and the
+file is written by a `Blob` download.
 
 The seven scenarios are two system views, a 550 km orbit with a raise node, a full GTO-to-GEO
 transfer whose apogee burn combines its plane change with its circularisation (4,258 m/s, saving
@@ -65,8 +71,8 @@ npm run dev        # http://localhost:5183
 To check it:
 
 ```
-npm run verify     # typecheck + lint + 602 unit tests + build
-npm run test:e2e   # 47 Playwright tests against the real app
+npm run verify     # typecheck + lint + 664 unit tests + build
+npm run test:e2e   # 53 Playwright tests against the real app
 ```
 
 ## Stack
@@ -83,8 +89,8 @@ convention, so the boundary cannot quietly erode (ADR-0001).
 | Command             | What it does                               |
 | ------------------- | ------------------------------------------ |
 | `npm run dev`       | Vite dev server on http://localhost:5183   |
-| `npm test`          | unit tests (602)                           |
-| `npm run test:e2e`  | Playwright end-to-end tests (47)           |
+| `npm test`          | unit tests (664)                           |
+| `npm run test:e2e`  | Playwright end-to-end tests (53)           |
 | `npm run typecheck` | `tsc` with strict settings                 |
 | `npm run lint`      | ESLint, including the core-purity boundary |
 | `npm run build`     | typecheck + production build               |

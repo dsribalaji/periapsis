@@ -25,6 +25,16 @@ export default tseslint.config(
     },
   },
   {
+    // The UI may read the wall clock. The restriction above exists because simulation code must
+    // take time as a parameter, and nothing under `src/ui` computes physics: the one use here is
+    // stamping a saved scenario with the instant it was saved, which is metadata rather than a
+    // simulation input and is never read back into the clock.
+    files: ['src/ui/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-globals': ['error', { name: 'fetch', message: 'No network at runtime.' }],
+    },
+  },
+  {
     // The physics core must stay pure: no React, no Three.js, no DOM, no ambient time.
     files: ['src/core/**/*.ts', 'src/sim/**/*.ts'],
     rules: {

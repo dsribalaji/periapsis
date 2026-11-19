@@ -147,8 +147,23 @@ delete one. Those items stay unticked rather than being checked off on the stren
 
 ## M7 — Scenarios and polish
 
-- [ ] M7.1 Versioned scenario schema + validation + migration
-- [ ] M7.2 IndexedDB/localStorage persistence, file export/import with error report
+- [x] M7.1 Versioned scenario schema + validation + migration - The schema and validation already existed (`types.ts` `SCENARIO_SCHEMA_VERSION`,
+      `validate.ts` returning `{path, message}` issues); the gap was migration, now
+      `scenarios/migrate.ts`. `migrateWith(chain, input, target?)` walks a supplied chain to a
+      supplied target and then validates, which is what makes an _empty_ real chain testable: a
+      synthetic 0→1→2 chain exercises ordering, a missing step is reported as a build gap rather
+      than a corrupt file, and a step cannot smuggle an invalid field past the validator. 15 unit
+      tests. `MIGRATIONS` is genuinely empty at schema 1 (asserted), and a newer file is refused
+      with both version numbers rather than parsed best-effort. D-038.
+- [x] M7.2 IndexedDB/localStorage persistence, file export/import with error report - `scenarios/io.ts` (export with fixed field order, filename derivation, import with a
+      summary plus per-field issues, declared version) and `scenarios/persist.ts` (envelope
+      `{storeVersion, savedAt, scenario}`, save/load/clear, `browserStore()` probed with a real
+      write). `ui/boot.ts` turns a load result into the three boot outcomes, and
+      `ui/ScenarioFilePanel.tsx` is the controls. localStorage, not IndexedDB: one scenario is
+      one small object. 46 unit tests in `scenarioIo.test.ts` and `persist.test.ts` plus 7 in
+      `boot.test.ts`, and 6 e2e tests covering download-and-reopen, a field-level import error, a
+      non-JSON file, reload restore and forget-then-reload. Corrupt entries self-heal; a newer
+      envelope is never overwritten. D-037.
 - [ ] M7.3 Accessibility pass (focus, contrast, reduced motion, shortcuts)
 - [ ] M7.4 Performance measurement with recorded numbers
 

@@ -494,3 +494,73 @@ cases. What separates them is the return: without the Moon the burn is a closed 
 with a 10.4-day period, so at the end of the 9-day horizon the craft is still 308,380 km out,
 against 7,057 km at 6.36 days. The test asserts that ratio (43.7× measured, bounded at 20×), not
 the approach distance.
+
+## D-037 - Persistence is an envelope, and a refused restore never destroys what it could not read
+
+**Choice:** the last scenario is stored under `periapsis.scenario.v1` as
+`{ storeVersion, savedAt, scenario }`, and `loadScenario` returns a discriminated result whose
+`reason` distinguishes `empty` (first run), `corrupt` (discarded) and `newer` (left in place).
+Import is a separate path: plain JSON, migrated, validated, reported as a summary plus field paths.
+**Alternatives:** store the bare `Scenario` (then the scenario's own `schemaVersion` has to answer
+two different questions); use IndexedDB (correct for many scenarios, oversized for one); let
+`validateScenario` throw on import and catch it (loses the field paths, which are the whole point).
+**Why:** the envelope version and the scenario version measure different things. `storeVersion`
+says how to read the box, `scenario.schemaVersion` says how to read what is in it; a change to the
+storage shape (several scenarios, a slot name) must not look like a schema break. Keeping them
+apart costs one integer and avoids a fake schema bump.
+
+The interesting decision is what happens when a restore _fails_, because the three failures want
+three different responses and collapsing them into one boolean gets each of them wrong:
+
+| Reason    | Cause                             | Response                             |
+| --------- | --------------------------------- | ------------------------------------ |
+| `empty`   | first visit                       | open the default, say nothing        |
+| `corrupt` | bad JSON, or no longer validates  | discard it, open the default, say so |
+| `newer`   | `storeVersion` above this build's | leave it untouched, say so           |
+
+`corrupt` is discarded rather than retried because otherwise a single bad write makes every future
+load fail identically and the app never self-heals - the user would have to clear storage by hand
+to recover, and nothing in the UI would tell them that. `newer` is deliberately _not_ discarded:
+it may be a perfectly good scenario from a later build, and deleting the user's only copy in order
+to save a default is worse than any inconvenience of not restoring. `bootScenario` propagates that
+as `preserveStored`, and the save effect honours it for the whole session, not just the first
+render - a session-long flag, because the user may switch scenarios several times before the next
+save and every one of those writes would destroy the newer entry.
+
+`bootScenario` is in `src/ui/boot.ts` rather than in `App.tsx` so all three outcomes are unit
+testable against a fake store. `browserStore()` probes with a real write-and-delete rather than
+trusting `typeof localStorage`, because Safari's private mode, a sandboxed iframe and a blocked
+cookie jar all present a storage object that exists and refuses writes; `persist.ts` then treats a
+refusing store as "no store" and the app degrades to not remembering rather than throwing.
+
+Import is not the same path as restore, and the difference is intentional. A restore reads a file
+this app wrote; an import reads a file a person may have edited, which is why it has to name the
+field that is wrong (`mission.orbit.altitudeM: must be positive`) and why the export fixes field
+order by construction so two exports of one scenario are byte-identical - a scenario kept in git
+should not churn on whitespace and key order. Neither path throws: `importScenario` and
+`loadScenario` both return results, because the one thing a file-open control must never do is take
+the app down.
+
+## D-038 - The migration walker takes its chain, and its target, as parameters
+
+**Choice:** `migrateWith(chain, input, target = SCENARIO_SCHEMA_VERSION)` walks a supplied chain
+from the file's declared version to `target`, then validates. `migrateScenario()` is the app entry
+point and passes the real, currently empty `MIGRATIONS`.
+**Alternatives:** test only against the real chain (proves nothing while the chain is empty);
+auto-detect the target from the newest known version (the same thing, but implicit); validate
+before migrating (wrong - an old file is invalid by definition until the step has run).
+**Why:** there is exactly one schema version today, so a migration mechanism with no migrations in
+it is untestable by construction unless something can be injected. The `target` parameter exists
+for the same reason, and only that reason: it lets a test exercise a _two-step_ upgrade and a
+_missing-step_ gap at versions this build does not have, which is the actual behaviour of the
+walker. Without it, the only reachable path is "version 1 file, version 1 build", and the code that
+walks a chain would be shipped unexercised.
+
+Two properties are deliberately absent. There is **no step-count guard**: the walker advances its
+own version counter by one per iteration and a step never declares which version it produced, so
+the walk cannot repeat a gap or fail to terminate, and a guard would be unreachable code - which is
+only a place for a future bug to hide. And a **newer file is refused, not best-effort parsed**:
+forward compatibility would mean guessing at fields this build has never seen, and a scenario that
+half-loads is worse than one that refuses with both version numbers in the message. The refusal
+message names both, because "your file is from a newer build" without saying which build is not
+something a user can act on.

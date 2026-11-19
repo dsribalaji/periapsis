@@ -87,6 +87,23 @@ is what D-020 exists to prevent. Its non-obvious numbers - the 5° inclination, 
 epoch - are all measured, and the measurements are in PHYSICS.md §14 next to the reasoning that
 produced them rather than in the scenario file as a comment nobody re-checks.
 
+Three modules sit on top of the catalogue and each has one job:
+
+- `migrate.ts` upgrades an older file before it is validated. Its chain and its target version are
+  arguments rather than module constants, which is the only way the walker can be tested while the
+  real chain is empty (D-038).
+- `io.ts` is the file format: serialise, derive a filename, parse and report. Pure, so the entire
+  import error surface is unit tested; the panel does the `Blob` and the file input and nothing
+  else.
+- `persist.ts` is `localStorage`, behind a `KeyValueStore` interface so a test can pass an object
+  literal and a browser that refuses writes degrades instead of throwing.
+
+`loadScenario` returns a discriminated result rather than a boolean, because "nothing saved",
+"the saved copy is broken" and "the saved copy is from a newer build" need three different
+responses - and only the middle one should delete anything (D-037). `ui/boot.ts` is the one place
+that turns that result into what the app opens with, which keeps `App.tsx` from having to encode
+the policy in a pair of nested conditionals.
+
 ### `src/render` — Three.js
 
 `scale.ts` solves two separate problems: units (metres → scene units) and dynamic range. Body

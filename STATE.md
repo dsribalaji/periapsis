@@ -21,10 +21,10 @@ Last full run: `npm run verify` (2026-11-19) and `npx playwright test`.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 602 tests / 24 files                               |
-| Build (`vite build`)        | PASS, 852.49 kB JS (232.62 kB gzip)                      |
+| Unit tests (`vitest run`)   | PASS, 664 tests / 28 files                               |
+| Build (`vite build`)        | PASS, 860.06 kB JS (235.12 kB gzip)                      |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
-| E2E (`npx playwright test`) | PASS, 47 tests against the real app in headless Chromium |
+| E2E (`npx playwright test`) | PASS, 53 tests against the real app in headless Chromium |
 
 All six were run, not inferred. The e2e suite starts its own dev server and drives the real
 page: it asserts React mounts, a WebGL canvas is created and sized, the clock advances while
@@ -89,6 +89,21 @@ cannot separate the two cases. The return can: without the Moon the burn is a cl
 a 10.4-day period, and at the end of the 9-day horizon the craft is still 308,380 km out, against
 7,045 km at 6.36 days. The test asserts that ratio (43.7x measured, bounded at 20x).
 
+Scenario persistence and file handling are covered at both levels too. At the unit level (62
+tests across four files) the migration walker is exercised against a synthetic chain, the export
+is round-tripped for all seven bundled scenarios, filenames are checked against a hostile id
+(`../../etc/passwd` becomes `etc-passwd.periapsis.json`), every malformed import is checked to
+return a message rather than throw, and the store is tested against three fake implementations: a
+working one, one that refuses writes (Safari private mode) and one that refuses reads. At the e2e
+level (6 tests) a scenario is downloaded and reopened under a new name, a broken file is refused
+with the field path on screen, a non-JSON file is named as such, a chosen scenario survives a
+reload, and forgetting it returns the app to the default on the next load.
+
+Two behaviours in that block are worth stating because they are choices rather than accidents.
+A refused import leaves the current scenario untouched, so a bad file cannot take the app away
+from where the user was. And clearing the store does not change the current session - the user
+asked to forget what is saved, not to be thrown back to the default mid-task (D-037).
+
 Note on the browser: the paired interactive browser extension was not connected, so
 verification ran through Playwright's Chromium with software GL
 (`--use-gl=swiftshader`). That is a real browser executing the real bundle, but it is not
@@ -122,7 +137,11 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/transferView.test.ts`    | 42    | cell -> node, timing shift, warnings, horizon extension            |
 | `tests/groundTrack.test.ts`     | 20    | obliquity, GMST rotation, geocentric lat/lon, antimeridian         |
 | `tests/groundTrackView.test.ts` | 34    | projection, antimeridian split, gaps, marker, image, datum check   |
-| `e2e/shell.spec.ts`             | 47    | boot, WebGL, clock, picking, drag, zoom, mission, plot, map, Moon  |
+| `tests/migrate.test.ts`         | 15    | version gate, chain ordering, gaps, validation after migrating     |
+| `tests/scenarioIo.test.ts`      | 23    | export round trip, filenames, import errors, hostile ids           |
+| `tests/persist.test.ts`         | 17    | envelope, corrupt/newer handling, refusing stores, round trip      |
+| `tests/boot.test.ts`            | 7     | restore, discard, preserve-newer, no store, custom ids             |
+| `e2e/shell.spec.ts`             | 53    | boot, WebGL, clock, picking, drag, zoom, mission, plot, map, files |
 
 ## Module inventory
 
@@ -187,6 +206,9 @@ the same as a check on a GPU-backed desktop browser.
 | `types.ts`     | complete: versioned `Scenario` / `ScenarioView` types        |
 | `validate.ts`  | complete, tested: structural validation with field paths     |
 | `catalogue.ts` | complete, tested: seven bundled scenarios, validated on load |
+| `migrate.ts`   | complete, tested: version gate + chain walker, empty chain   |
+| `io.ts`        | complete, tested: export, filename, import with field paths  |
+| `persist.ts`   | complete, tested: localStorage envelope, corrupt self-heal   |
 
 Entry points: `index.html`, `src/main.tsx`, `e2e/shell.spec.ts`, `playwright.config.ts`,
 `scripts/inspect-screenshot.mjs` (decodes a screenshot and reports measurable facts; the agent
@@ -194,8 +216,8 @@ cannot view images, so a screenshot is only ever "measured", never "looked at").
 
 Not yet written: the maneuver-node _editor_ (nodes are shown and marked applied, and one can now
 be created from a porkchop cell, but there is no edit/delete control yet - `leo-raise` carries its
-node as scenario data), arrival/capture burns, a runtime free-return _solver_ (the scenario replays
-a measured trajectory rather than searching for one), scenario persistence and file import/export.
+node as scenario data), arrival/capture burns, and a runtime free-return _solver_ (the scenario
+replays a measured trajectory rather than searching for one).
 
 ## Milestones
 
@@ -208,7 +230,7 @@ a measured trajectory rather than searching for one), scenario persistence and f
 | M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
 | M5 mission planning       | done (M5.1–M5.5)                                                 |
 | M6 ground track + Moon    | done (M6.1 physics, M6.2 panel, M6.3 free return)                |
-| M7 scenarios + polish     | not started                                                      |
+| M7 scenarios + polish     | M7.1 migration and M7.2 persistence/files done; M7.3, M7.4 open  |
 | M8 hardening              | not started                                                      |
 
 ## Known limitations carried forward
@@ -305,3 +327,20 @@ a measured trajectory rather than searching for one), scenario persistence and f
   at 3,110 m/s the free-return craft passes 1,227 km below the Moon's surface and the app shows a
   trajectory through the Moon rather than a warning. Found while writing PHYSICS.md §14.4, recorded
   there and here, not fixed in M6.3.
+- **Persistence stores the scenario, not the session.** A reload returns to the scenario's start:
+  the clock resets to its epoch and a maneuver node planned from a porkchop cell is not there,
+  because the cell is not part of a scenario. The clock and the planned node are derived state,
+  and restoring them would mean persisting an input whose epoch assumptions are no longer visible.
+- **One saved scenario, in one browser, on one origin.** No profiles, no named slots, no export of
+  a history. `localStorage` is per-origin and per-browser-profile, so the same app at a different
+  port or in a different browser opens the default. The file export is the way to carry a scenario
+  between them.
+- **A scenario written by a newer build cannot be opened, only left alone.** The app says so and
+  does not overwrite it, but the user's only route to their scenario is a build that reads it. This
+  is deliberate (D-037) rather than an oversight: guessing at unknown fields would load something
+  that is not the scenario they saved.
+- **Storage can be unavailable, and the app does not warn about it beyond not remembering.**
+  A browser with cookies blocked or storage full opens the default, the file panel omits the
+  "Forget saved scenario" control because there is nothing to forget, and nothing claims a save
+  happened. There is no persistent banner for it; a visit in that state is indistinguishable from
+  a first visit by design.

@@ -26,7 +26,15 @@ import type { RadialMode } from '../render/scale.js';
 import { BODY_DISPLAY } from './bodyDisplay.js';
 import type { BodyId } from '../core/ephemeris/solarSystem.js';
 import { AU_M, SECONDS_PER_DAY } from '../core/constants.js';
-import { SCENARIOS, defaultScenario } from '../scenarios/catalogue.js';
+import { SCENARIOS } from '../scenarios/catalogue.js';
+import {
+  browserStore,
+  clearScenario,
+  saveScenario,
+  type KeyValueStore,
+} from '../scenarios/persist.js';
+import { bootScenario, type BootState } from './boot.js';
+import { ScenarioFilePanel } from './ScenarioFilePanel.js';
 import type { Scenario } from '../scenarios/types.js';
 import type { CraftSpec } from '../sim/craft.js';
 import {
@@ -41,7 +49,17 @@ import { PorkchopPanel } from './PorkchopPanel.js';
 import { departureAsymptote, type Porkchop } from '../core/transfer/porkchop.js';
 import { applyDepartureNode, buildTransferNode, departureSummary } from './transferView.js';
 
-const INITIAL_SCENARIO = defaultScenario();
+/**
+ * Runs before the first render, once per mount, and decodes what the store remembers.
+ *
+ * A module-level constant would be wrong here: `bootScenario` reads `localStorage`, and a module
+ * that reads the DOM at import time makes the file awkward to test and impossible to re-run.
+ * `useState` initialisers are called in an order React guarantees, so the lazy state below all
+ * reads this one object rather than each of them calling boot separately.
+ */
+function bootOnce(): BootState {
+  return bootScenario();
+}
 
 /** Colour of the craft's path, distinct from every body colour. */
 const MISSION_COLOR = 0xff9f1c;
@@ -63,33 +81,41 @@ interface DisplayState {
   readonly progress: MissionProgress | null;
 }
 
-const INITIAL_DISPLAY: DisplayState = {
-  simSeconds: 0,
-  isoUtc: INITIAL_SCENARIO.epochUtc,
-  throttled: false,
-  distances: new Map(),
-  offscreen: new Set<BodyId>(),
-  webglError: null,
-  progress: null,
-};
+function initialDisplay(isoUtc: string): DisplayState {
+  return {
+    simSeconds: 0,
+    isoUtc,
+    throttled: false,
+    distances: new Map(),
+    offscreen: new Set<BodyId>(),
+    webglError: null,
+    progress: null,
+  };
+}
 
 export function App(): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SolarSystemScene | null>(null);
+  // Boot runs once, in a lazy initialiser, so a StrictMode double mount does not cost a second
+  // storage read and the first render already knows which scenario it is showing.
+  const [boot] = useState(bootOnce);
+  const initial = boot.scenario;
+  // The store, resolved once per mount. Null when the browser will not give us one, which is a
+  // normal condition (private mode, blocked cookies) rather than an error: the app simply does
+  // not remember anything, and nothing in the UI claims it does.
+  const [store] = useState<KeyValueStore | null>(() => browserStore());
   // Created once. Never replaced, only mutated through event handlers.
-  const [sim] = useState(
-    () => new Simulation(INITIAL_SCENARIO.epochUtc, INITIAL_SCENARIO.startWarp),
-  );
+  const [sim] = useState(() => new Simulation(initial.epochUtc, initial.startWarp));
 
-  const [scenario, setScenario] = useState<Scenario>(INITIAL_SCENARIO);
+  const [scenario, setScenario] = useState<Scenario>(initial);
   // The mission is state, not derived from the scenario, because a planned departure writes a
   // node into it. It is seeded from the scenario and replaced wholesale on a scenario switch,
   // so a node planned in one scenario can never leak into another.
-  const [mission, setMission] = useState<CraftSpec | undefined>(INITIAL_SCENARIO.mission);
-  const [selected, setSelected] = useState<BodyId>(INITIAL_SCENARIO.focus);
-  const [warp, setWarpState] = useState<Warp>(INITIAL_SCENARIO.startWarp);
-  const [scaleMode, setScaleMode] = useState<RadialMode>(INITIAL_SCENARIO.view.radialMode);
-  const [display, setDisplay] = useState<DisplayState>(INITIAL_DISPLAY);
+  const [mission, setMission] = useState<CraftSpec | undefined>(initial.mission);
+  const [selected, setSelected] = useState<BodyId>(initial.focus);
+  const [warp, setWarpState] = useState<Warp>(initial.startWarp);
+  const [scaleMode, setScaleMode] = useState<RadialMode>(initial.view.radialMode);
+  const [display, setDisplay] = useState<DisplayState>(() => initialDisplay(initial.epochUtc));
   // Feedback from the last "plan departure" attempt. Null means nothing has been attempted.
   const [departureIssue, setDepartureIssue] = useState<string | null>(null);
   const [departureNote, setDepartureNote] = useState<string | null>(null);
@@ -115,7 +141,11 @@ export function App(): React.JSX.Element {
 
   // Last non-paused warp, so Play resumes at the speed the user was using. Updated only
   // from event handlers, never from an effect.
-  const resumeWarpRef = useRef<Warp>(INITIAL_SCENARIO.startWarp);
+  const resumeWarpRef = useRef<Warp>(initial.startWarp);
+
+  // Set once the first save has been made. Rendering must not write storage, and a save that
+  // fires on the initial render would rewrite a just-restored scenario with itself.
+  const savedRef = useRef(false);
 
   // Set when WebGL fails to start, read by the frame loop and published with the readouts.
   const webglErrorRef = useRef<string | null>(null);
@@ -150,6 +180,30 @@ export function App(): React.JSX.Element {
     },
     [sim],
   );
+
+  /**
+   * Remembers the scenario, so a reload puts the user back where they were.
+   *
+   * Saves only the *scenario*, not the clock or a mission node added since. A planned departure
+   * is something the user asked the app to compute from a scenario plus a porkchop cell;
+   * restoring the scenario and asking them to click again is honest, whereas restoring a node
+   * would mean persisting a derived trajectory input whose epoch assumptions are no longer in
+   * front of them.
+   *
+   * Never writes on the first commit, and never writes at all when the store holds a newer entry
+   * this build cannot read (`boot.preserveStored`).
+   */
+  useEffect(() => {
+    // A newer entry is never overwritten, for the whole session, not just the first render.
+    if (store === null || boot.preserveStored) return;
+    // The first run is the boot scenario being written back to itself. Skipping it keeps the
+    // `savedAt` of a restored scenario honest: it still says when the user actually saved.
+    if (!savedRef.current) {
+      savedRef.current = true;
+      return;
+    }
+    saveScenario(store, scenario, new Date().toISOString());
+  }, [scenario, store, boot.preserveStored]);
 
   /**
    * Pushes the mission's path into the scene.
@@ -298,15 +352,18 @@ export function App(): React.JSX.Element {
     }
     sceneRef.current = scene;
     scene.updatePositions(sim.positions());
-    scene.setCamera(INITIAL_SCENARIO.view);
-    if (INITIAL_SCENARIO.view.centeredOn === 'focus') scene.centerOn(INITIAL_SCENARIO.focus);
+    scene.setCamera(initial.view);
+    if (initial.view.centeredOn === 'focus') scene.centerOn(initial.focus);
     scene.render();
 
     return () => {
       scene.dispose();
       sceneRef.current = null;
     };
-  }, [sim]);
+    // `initial` is the boot scenario and never changes for the life of the component, so these
+    // dependencies are stable; they are listed because the effect reads them and the lint rule
+    // is right to want that stated rather than inferred from a variable's name.
+  }, [sim, initial]);
 
   // Frame loop: advance the clock, then draw.
   useEffect(() => {
@@ -394,6 +451,39 @@ export function App(): React.JSX.Element {
   );
   const progress = display.progress;
 
+  // True when the current scenario came from the store or a file rather than the catalogue,
+  // which is what tells the select to list it as its own option.
+  const isBundled = SCENARIOS.some((s) => s.id === scenario.id);
+
+  /**
+   * The one line under the scenario picker that explains what the app opened with.
+   *
+   * Null for a normal first visit and for a browser with no storage: neither is worth a note,
+   * and an empty first launch that announces "nothing restored" is noise. Every other outcome is
+   * something the user could otherwise mistake for the app losing their work.
+   */
+  let restoreNote: string | null = null;
+  const restore = boot.restore;
+  if (restore && !restore.ok) {
+    if (restore.reason === 'corrupt') {
+      restoreNote =
+        'The scenario saved in this browser no longer loaded, so it was discarded and the ' +
+        'default opened. The detail was: ' +
+        restore.detail.replace(/^the /, '').replace(/; it has been discarded$/, '') +
+        '.';
+    } else if (restore.reason === 'newer') {
+      restoreNote =
+        'This browser holds a scenario from a newer build of Periapsis. It has been left ' +
+        'untouched and is not being shown or overwritten; the default is open instead.';
+    }
+  } else if (restore?.ok) {
+    restoreNote = 'Opened the scenario saved in this browser. Choosing another replaces it.';
+  }
+
+  const handleClearStored = useCallback(() => {
+    if (store !== null) clearScenario(store);
+  }, [store]);
+
   return (
     <div className="app">
       <div className="viewport" ref={viewportRef} aria-label="Solar system 3D view">
@@ -420,6 +510,13 @@ export function App(): React.JSX.Element {
               if (next) applyScenario(next);
             }}
           >
+            {/*
+              A restored or imported scenario can have any id the validator accepts, so it will
+              not match an option. React would then render the select with no selection, which
+              reads as "the app forgot" while the scenario panel below names the file. The
+              current scenario is therefore listed first when it is not one of the bundled ones.
+            */}
+            {!isBundled && <option value={scenario.id}>{scenario.name} (opened file)</option>}
             {SCENARIOS.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -430,7 +527,25 @@ export function App(): React.JSX.Element {
           <p className="hint" data-testid="scenario-epoch">
             Epoch {scenario.epochUtc.replace('T', ' ').replace('Z', ' UTC')}
           </p>
+          {/*
+            The restore notice. A first visit says nothing; a restored scenario says where it
+            came from, because an app that opens somewhere other than its default without
+            explaining is confusing. A discarded or preserved entry is reported for the same
+            reason: silence would look like the save never happened.
+          */}
+          {restoreNote && (
+            <p className="hint" data-testid="scenario-restore">
+              {restoreNote}
+            </p>
+          )}
         </div>
+
+        <ScenarioFilePanel
+          scenario={scenario}
+          onImport={applyScenario}
+          store={store}
+          onClear={handleClearStored}
+        />
 
         <div className="section">
           <h2>Selected</h2>

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 /**
  * Smoke tests for the application shell.
@@ -942,5 +943,129 @@ test.describe('the lunar free-return scenario', () => {
     // it has one; a transition to a lunar-centred track is not drawn rather than mis-projected.
     await page.getByLabel('Scenario').selectOption('earth-moon');
     await expect(page.getByTestId('ground-track')).toHaveCount(0);
+  });
+});
+
+test.describe('scenario files and persistence', () => {
+  test('downloads the current scenario as JSON with a filename derived from its id', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('gto-transfer');
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('scenario-export').click(),
+    ]);
+    expect(download.suggestedFilename()).toBe('gto-transfer.periapsis.json');
+
+    // The bytes matter, not just the name: the file must be the scenario the app is showing,
+    // parseable on its own, with a version this build declares.
+    const path = await download.path();
+    expect(path).not.toBeNull();
+    const text = await readFile(path!, 'utf8');
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    expect(parsed['id']).toBe('gto-transfer');
+    expect(parsed['schemaVersion']).toBe(1);
+    expect(parsed['name']).toBe('GTO to GEO');
+    // Pretty-printed, because the panel promises a file a person can edit.
+    expect(text).toContain('\n  "id"');
+  });
+
+  test('opens a downloaded file back, under its own name', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('gto-transfer');
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('scenario-export').click(),
+    ]);
+    const text = await readFile((await download.path())!, 'utf8');
+    // Renaming is how a user forks a bundled scenario, and it is what proves the app is reading
+    // the file rather than re-selecting something already in the catalogue.
+    const edited = JSON.stringify({
+      ...(JSON.parse(text) as Record<string, unknown>),
+      id: 'my-gto',
+      name: 'My GTO run',
+    });
+
+    await page.getByTestId('scenario-import-input').setInputFiles({
+      name: 'my-gto.periapsis.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(edited, 'utf8'),
+    });
+
+    await expect(page.getByTestId('scenario-import-ok')).toContainText('My GTO run');
+    // The select lists it as an opened file, because its id is not one of the bundled ones.
+    await expect(page.getByLabel('Scenario')).toHaveValue('my-gto');
+    await expect(page.getByLabel('Scenario').locator('option:checked')).toHaveText(
+      'My GTO run (opened file)',
+    );
+    // And the mission it carries is live, not merely described.
+    await expect(page.getByTestId('mission-planned')).toHaveText('4258.4 m/s');
+  });
+
+  test('refuses a broken file with a message naming the field', async ({ page }) => {
+    await page.goto('/');
+    const before = await page.getByLabel('Scenario').inputValue();
+
+    await page.getByTestId('scenario-import-input').setInputFiles({
+      name: 'broken.periapsis.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from('{ "schemaVersion": 1, "id": "" }', 'utf8'),
+    });
+
+    const error = page.getByTestId('scenario-import-error');
+    await expect(error).toBeVisible();
+    // The point of the error report: the field path, not "invalid file".
+    await expect(error).toContainText('id');
+    // A refused import must not change what is on screen.
+    await expect(page.getByLabel('Scenario')).toHaveValue(before);
+    await expect(page.getByTestId('scenario-import-ok')).toHaveCount(0);
+  });
+
+  test('says the file is not JSON rather than failing silently', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('scenario-import-input').setInputFiles({
+      name: 'notes.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('this is not a scenario', 'utf8'),
+    });
+    const error = page.getByTestId('scenario-import-error');
+    await expect(error).toBeVisible();
+    await expect(error).toContainText('not valid JSON');
+  });
+
+  test('remembers the chosen scenario across a reload', async ({ page }) => {
+    await page.goto('/');
+    // A fresh browser context has no storage, so the first visit says nothing about restoring.
+    await expect(page.getByTestId('scenario-restore')).toHaveCount(0);
+
+    await page.getByLabel('Scenario').selectOption('lunar-free-return');
+    // Selecting is what saves. Give the effect a commit to run before reloading.
+    await expect(page.getByTestId('mission-planned')).toHaveText('3115.0 m/s');
+
+    await page.reload();
+    await expect(page.getByLabel('Scenario')).toHaveValue('lunar-free-return');
+    await expect(page.getByTestId('scenario-restore')).toContainText(
+      'Opened the scenario saved in this browser',
+    );
+    // Restored, not merely selected: the mission came back with it.
+    await expect(page.getByTestId('mission-planned')).toHaveText('3115.0 m/s');
+  });
+
+  test('forgets on request and opens the default on the next reload', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('gto-transfer');
+    await expect(page.getByTestId('mission-planned')).toHaveText('4258.4 m/s');
+
+    await page.getByTestId('scenario-clear').click();
+    await expect(page.getByTestId('scenario-clear-ok')).toBeVisible();
+    // Clearing the store does not yank the scenario out from under the user mid-session.
+    await expect(page.getByLabel('Scenario')).toHaveValue('gto-transfer');
+
+    await page.reload();
+    await expect(page.getByLabel('Scenario')).toHaveValue('inner-system');
+    await expect(page.getByTestId('scenario-restore')).toHaveCount(0);
   });
 });
