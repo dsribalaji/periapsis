@@ -1209,3 +1209,119 @@ test.describe('accessibility', () => {
     await context.close();
   });
 });
+
+test.describe('dwarf planets, asteroids and comets', () => {
+  test('lists the small bodies and selects one with its orbit and data caveat', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    const panel = page.getByTestId('small-bodies');
+    await panel.locator('summary').click();
+    await panel.locator('.body-row', { hasText: '1P/Halley' }).click();
+
+    await expect(page.getByTestId('selected-name')).toHaveText('1P/Halley');
+    const sidebar = page.locator('.sidebar');
+    await expect(sidebar).toContainText('Comet');
+    await expect(sidebar).toContainText('1P/Halley');
+    // The readout must say where the numbers come from and how far they can be trusted.
+    await expect(sidebar).toContainText("NASA/JPL's Small-Body Database");
+    await expect(sidebar).toContainText('two-body');
+  });
+
+  test('hides small bodies from the view on request but keeps them selectable', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    const panel = page.getByTestId('small-bodies');
+    await panel.locator('summary').click();
+    await panel.getByLabel('Show in the view').uncheck();
+    await panel.locator('.body-row', { hasText: 'Ceres' }).click();
+    await expect(page.getByTestId('selected-name')).toHaveText('Ceres');
+  });
+});
+
+test.describe('share links', () => {
+  test('a link opens its scenario, instant and target, then clears itself', async ({ page }) => {
+    await page.goto(
+      '/#v=1&s=earth-moon&t=2029-04-13T12:00:00Z&sel=apophis&w=0&m=linear&cam=0.6,0.5,0.4&f=earth',
+    );
+    await expect(page.getByLabel('Scenario')).toHaveValue('earth-moon');
+    await expect(page.locator('.sim-time')).toContainText('2029-04-13 12:00:00');
+    await expect(page.getByTestId('selected-name')).toHaveText('Apophis');
+    await expect(page.getByTestId('scenario-restore')).toContainText('shared link');
+    // Consumed, so a later reload opens what the person has moved on to.
+    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('');
+  });
+
+  test('a malformed link is ignored rather than breaking the page', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto('/#v=1&s=nope&t=9999-99-99T00:00:00Z&sel=<b>&cam=a,b,c');
+    await expect(page.getByLabel('Scenario')).toHaveValue('inner-system');
+    expect(errors).toEqual([]);
+  });
+
+  test('copying a link produces one that reopens the same target', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('gto-transfer');
+    await page.getByRole('button', { name: 'Copy link to this view' }).click();
+    await expect(page.getByTestId('share-note')).toContainText('Link copied');
+    const url = await page.evaluate(() => navigator.clipboard.readText());
+    expect(url).toContain('s=gto-transfer');
+
+    await page.goto('about:blank');
+    await page.goto(url);
+    await expect(page.getByLabel('Scenario')).toHaveValue('gto-transfer');
+    await expect(page.getByTestId('selected-name')).toHaveText('Earth');
+  });
+});
+
+test.describe('maneuver node editor', () => {
+  test('adds a burn, and the plan re-propagates with its cost', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await expect(page.getByTestId('mission-planned')).toHaveText('62.0 m/s');
+
+    await page.getByTestId('node-add').click();
+    await page.getByTestId('node-label').fill('Second raise');
+    await page.getByTestId('node-time').fill('1:00:00');
+    await page.getByTestId('node-a').fill('30');
+    await page.getByRole('button', { name: 'Add burn' }).click();
+
+    await expect(page.getByTestId('node-form')).toHaveCount(0);
+    await expect(page.getByTestId('mission-planned')).toHaveText('92.0 m/s');
+    await expect(page.getByTestId('mission-nodes')).toContainText('Second raise');
+  });
+
+  test('edits a burn in place', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await page.getByRole('button', { name: 'Edit Raise 62 m/s' }).click();
+    await page.getByTestId('node-a').fill('100');
+    await page.getByRole('button', { name: 'Save burn' }).click();
+    await expect(page.getByTestId('mission-planned')).toHaveText('100.0 m/s');
+    // 100 m/s against a 120 m/s budget leaves 20.
+    await expect(page.getByTestId('mission-remaining')).toHaveText('20.0 m/s');
+  });
+
+  test('deletes a burn', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await page.getByRole('button', { name: 'Delete Raise 62 m/s' }).click();
+    await expect(page.getByTestId('mission-no-nodes')).toBeVisible();
+    await expect(page.getByTestId('mission-planned')).toHaveText('0.0 m/s');
+  });
+
+  test('explains a bad entry next to the field instead of applying it', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('leo-raise');
+    await page.getByTestId('node-add').click();
+    await page.getByTestId('node-time').fill('soon');
+    await page.getByTestId('node-a').fill('10');
+    await page.getByRole('button', { name: 'Add burn' }).click();
+    await expect(page.getByTestId('node-form')).toBeVisible();
+    await expect(page.getByTestId('node-time')).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByTestId('mission-planned')).toHaveText('62.0 m/s');
+  });
+});

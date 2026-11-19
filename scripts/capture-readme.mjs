@@ -88,6 +88,14 @@ await shot('lunar-free-return');
 await scenario(scene, 'whole-system');
 await shot('whole-system');
 
+// The asteroid belt and the near-Earth asteroids: the inner system with Ceres selected, so its
+// orbit and data are on screen beside the planets.
+await scenario(scene, 'inner-system');
+await scene.getByTestId('small-bodies').locator('summary').click();
+await scene.locator('.body-row', { hasText: 'Ceres' }).click();
+await scene.getByRole('button', { name: 'Reset view' }).click();
+await shot('small-bodies');
+
 // --- The analysis panels, cropped, 2x -----------------------------------
 const panels = await open(2);
 
@@ -147,8 +155,16 @@ await figure('porkchop', '[data-testid="porkchop-stats"]', {
   endSelector: '.porkchop-axis-note',
 });
 
-// The ground track figure and its lat/lon readouts, stopping before the long caveats.
+// The node editor, mid-edit: the plan, its budget and a burn being changed.
 await scenario(panels, 'leo-raise');
+await panels.getByRole('button', { name: 'Edit Raise 62 m/s' }).click();
+await panels.getByTestId('node-a').fill('85');
+await figure('node-editor', '[data-testid="mission"] h2:nth-of-type(2)', {
+  endSelector: '[data-testid="node-form"]',
+});
+await panels.getByRole('button', { name: 'Cancel' }).click();
+
+// The ground track figure and its lat/lon readouts, stopping before the long caveats.
 await figure('ground-track', '[data-testid="ground-track"]', {
   endSelector: '[data-testid="ground-track"] .readout',
 });
