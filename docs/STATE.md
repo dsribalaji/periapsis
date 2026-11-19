@@ -15,20 +15,24 @@ Snapshot of where the build actually stands. Updated at the end of every iterati
 
 ## Verified status
 
-Last full run: `npm run verify` (2026-11-19) and `npx playwright test`, at tag `v1.0.0`.
+Last full run: `npm run verify` and `npx playwright test` (2026-11-20), on the uncommitted
+true-scale renderer on top of `v1.0.0`.
 
-A visual pass after v1.0.0 (uncommitted at the time of writing) fixed the reported Moon/Earth
-overlap and unreal body sizes. It adds 5 tests (672 / 30 files) and two scripts that measure
-rather than assert: `scripts/measure-startup.mjs` (first interaction) and
-`scripts/count-mission-pixels.mjs` (whether a trajectory is actually on screen). Details are in
-`DECISIONS.md` D-043 to D-046.
+The true-scale renderer (ADR-0008, D-047 to D-049) replaced the 282x body exaggeration that drew
+the Moon next to the Sun. It adds orbit paths, IAU spin axes, a follow camera and a schema-2
+migration, and fixes an apsis precision loss in `stateToElements` that a random property-test
+seed exposed. Frame timing was compared against a clean checkout of `v1.0.0` on the same machine
+in the same session: the two land in the same (heavily load-dependent) range, 33-117 ms per frame
+at 1280x800 under software GL, so no regression is measurable. The numbers in PERFORMANCE.md were
+taken on a quieter machine and are not directly comparable to today's.
 
 | Check                       | Result                                                   |
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 672 tests / 30 files                               |
-| Build (`vite build`)        | PASS, 869.62 kB JS (238.72 kB gzip)                      |
+| Unit tests (`vitest run`)   | PASS, 691 tests / 31 files                               |
+| Format (`prettier --check`) | PASS                                                     |
+| Build (`vite build`)        | PASS, 900.28 kB JS (248.59 kB gzip)                      |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
 | E2E (`npx playwright test`) | PASS, 62 tests against the real app in headless Chromium |
 
@@ -160,12 +164,12 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/lambert.test.ts`         | 35    | Hohmann/bi-elliptic/plane change + Lambert solver                  |
 | `tests/clock.test.ts`           | 21    | warp, step budget, frame-rate independence, formatting             |
 | `tests/simulation.test.ts`      | 15    | epoch/JD handling, body positions, determinism, reset              |
-| `tests/scale.test.ts`           | 22    | scene scale, radius compression, satellite ratio, radial mapping   |
+| `tests/scale.test.ts`           | 28    | one true scale, pixel minimums, satellite rule, radial mapping     |
 | `tests/scenario.test.ts`        | 47    | scenario schema, validation, catalogue, free-return physics        |
 | `tests/maneuver.test.ts`        | 23    | node frames, magnitudes, ordering, Δv totals                       |
 | `tests/trajectory.test.ts`      | 25    | propagation modes, burns in-frame, Δv accounting, Hohmann arc      |
 | `tests/craft.test.ts`           | 18    | circular orbit states, frames, periods, speeds, clearance          |
-| `tests/trajectoryLines.test.ts` | 22    | body-relative frame, exaggeration, envelope clipping, flown prefix |
+| `tests/trajectoryLines.test.ts` | 22    | body-relative frame, true scale, envelope clipping, flown prefix   |
 | `tests/missionView.test.ts`     | 23    | plan/progress split, Δv accounting, interpolation, aliasing        |
 | `tests/porkchop.test.ts`        | 34    | grid construction, Lambert agreement, cost/geometry, holes         |
 | `tests/porkchopView.test.ts`    | 50    | colour ramp, image orientation, pointer mapping, ticks, readout    |
@@ -173,10 +177,11 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/transferView.test.ts`    | 42    | cell -> node, timing shift, warnings, horizon extension            |
 | `tests/groundTrack.test.ts`     | 20    | obliquity, GMST rotation, geocentric lat/lon, antimeridian         |
 | `tests/groundTrackView.test.ts` | 34    | projection, antimeridian split, gaps, marker, image, datum check   |
-| `tests/migrate.test.ts`         | 15    | version gate, chain ordering, gaps, validation after migrating     |
+| `tests/migrate.test.ts`         | 19    | version gate, chain ordering, gaps, the real 1 -> 2 step           |
 | `tests/scenarioIo.test.ts`      | 23    | export round trip, filenames, import errors, hostile ids           |
 | `tests/persist.test.ts`         | 17    | envelope, corrupt/newer handling, refusing stores, round trip      |
-| `tests/placement.test.ts`       | 3     | planets on the radial mapping, satellites parent-relative, clear    |
+| `tests/orbitPaths.test.ts`      | 6     | closed ellipses, body on its path, eccentricity, Moon orbit size   |
+| `tests/poles.test.ts`           | 5     | IAU spin axes: unit length, obliquities, Uranus, retrograde sense  |
 | `tests/boot.test.ts`            | 7     | restore, discard, preserve-newer, no store, custom ids             |
 | `tests/version.test.ts`         | 3     | version injected from package.json, format, single source          |
 | `e2e/shell.spec.ts`             | 62    | boot, WebGL, clock, picking, drag, mission, plot, map, files, a11y |
@@ -215,12 +220,14 @@ the same as a check on a GPU-backed desktop browser.
 
 `src/render`:
 
-| Module               | Status                                                              |
-| -------------------- | ------------------------------------------------------------------- |
-| `scale.ts`           | complete, tested (linear + logarithmic radial mapping, offsets)     |
-| `trajectoryLines.ts` | complete, tested (body-relative per sample, exaggeration, clipping) |
-| `scene.ts`           | complete: bodies, rings, labels, picking, camera, drag/zoom,        |
-|                      | trajectories and the craft marker                                   |
+| Module               | Status                                                            |
+| -------------------- | ----------------------------------------------------------------- |
+| `scale.ts`           | complete, tested (one true scale, pixel minimums, radial mapping) |
+| `orbitPaths.ts`      | complete, tested (osculating ellipse per body, Moon about Earth)  |
+| `poles.ts`           | complete, tested (IAU spin axes in the ecliptic frame)            |
+| `trajectoryLines.ts` | complete, tested (body-relative per sample, true scale, clipping) |
+| `scene.ts`           | complete: bodies, orbits, labels, picking, follow camera, fly-to, |
+|                      | log depth, trajectories and the craft marker                      |
 
 `src/ui`:
 
@@ -244,7 +251,7 @@ the same as a check on a GPU-backed desktop browser.
 | `types.ts`     | complete: versioned `Scenario` / `ScenarioView` types        |
 | `validate.ts`  | complete, tested: structural validation with field paths     |
 | `catalogue.ts` | complete, tested: seven bundled scenarios, validated on load |
-| `migrate.ts`   | complete, tested: version gate + chain walker, empty chain   |
+| `migrate.ts`   | complete, tested: version gate + chain walker, 1 -> 2 step   |
 | `io.ts`        | complete, tested: export, filename, import with field paths  |
 | `persist.ts`   | complete, tested: localStorage envelope, corrupt self-heal   |
 
@@ -270,7 +277,8 @@ replays a measured trajectory rather than searching for one).
 | M6 ground track + Moon    | done (M6.1 physics, M6.2 panel, M6.3 free return)                |
 | M7 scenarios + polish     | done (M7.1–M7.4)                                                 |
 | M8 hardening              | done (M8.1–M8.4), v1.0.0 tagged locally                          |
-| Visual pass (post-v1.0.0) | done, uncommitted: satellite scale, textures, wider track lines, pair framing |
+| Visual pass (post-v1.0.0) | done: textures, wider track lines, pair framing                  |
+| True-scale renderer       | done, uncommitted: ADR-0008, D-047 to D-049                      |
 
 ## Known limitations carried forward
 
@@ -278,20 +286,17 @@ replays a measured trajectory rather than searching for one).
 - Delta-v from solar-system ephemerides is indicative, not operational: JPL Table 1's Mars
   range carries ~25,000 km (~1.7e-4 AU) of error, which moves Earth-Mars delta-v by a few
   tens of m/s.
-- Element round-trip near apsides is capped at ~1.5e-8 relative by true-anomaly
-  ill-conditioning; tests are bounded accordingly and say so in comments.
+- Element round-trip near apsides was capped by `acos` ill-conditioning; since D-048 every
+  in-plane angle is an `atan2`, and the apsis counterexample round-trips at ~1e-16.
 - The 3D view offers two radial layouts because neither alone is sufficient: true scale is
   honest but only fits the inner system (Neptune is 3,010 units out against a ~133-unit
   visible half-height at the default camera), while the compressed mode fits everything but
-  is not to scale. Body radii are cube-root compressed in both modes. All three compromises
-  are labelled in the UI rather than left implicit, and the View panel names exactly which
-  bodies are off screen at the current camera distance.
-- Satellite scale is a third rule on top of those two (PHYSICS.md 10.3): the Moon is drawn at
-  its true radius ratio to Earth and placed at Earth's own exaggeration, which is the only way
-  it can be outside the planet and agree with the trajectories drawn around it. In the
-  compressed layout there is no room for a 72-unit satellite offset, so the Moon is drawn at
-  three parent radii instead. Surface textures are procedural and plausible rather than real —
-  Earth's continents are noise, not coastlines.
+  is not to scale. Both are labelled in the UI, and the View panel names exactly which bodies
+  are off screen at the current camera distance.
+- Bodies are true size (ADR-0008). A body too small to resolve is drawn at a minimum pixel
+  size, so at system zoom a planet marker is larger than the planet; zoom in and it becomes
+  its real size. The Moon is hidden until it separates from Earth on screen. Surface textures
+  are procedural and plausible rather than real — Earth's continents are noise, not coastlines.
 - Drag-to-orbit and wheel zoom are wired to pointer events on the canvas, with pointer
   capture and drag-versus-click suppression so orbiting never reselects a body. There is no
   touch gesture handler beyond what pointer events give for free: one-finger drag orbits,
@@ -306,9 +311,6 @@ replays a measured trajectory rather than searching for one).
   D-032), so a craft that genuinely leaves its central body is drawn attached to it. The mission
   panel reports the physics (impact, apoapsis, periapsis) as numbers; the picture is a local
   view, not a heliocentric path.
-- Trajectory geometry reuses the central body's radius exaggeration (PHYSICS.md §10.3), so the
-  orbit is correct _about that body_ but not to scale against the heliocentric layout: the Moon
-  is drawn at 72 units from Earth-drawn-space while its scene position is ~0.03 units away.
 - Inclinations are ecliptic-referenced, not equatorial (PHYSICS.md §10.4), so a quoted 53° is
   53° from the ecliptic. The ground track is where the equatorial answer exists (§13.5), which is
   why a 53° orbit reaches 76.44° of latitude on the map: 53 + 23.44. That is the datum, not a

@@ -106,13 +106,21 @@ the policy in a pair of nested conditionals.
 
 ### `src/render` — Three.js
 
-`scale.ts` solves two separate problems: units (metres → scene units) and dynamic range. Body
-positions use a linear or logarithmic radial mapping; body _radii_ use cube-root compression so
-a satellite and a star are both visible. Both are documented in the module header and in the
-UI, because a compressed layout that is not labelled is a lie.
+`scale.ts` solves two separate problems: units (metres → scene units) and visibility. Every
+length - positions, radii, satellite offsets, trajectories - uses one true scale; the radial
+mapping can be switched to a labelled logarithmic layout for the whole system. Visibility is a
+_screen-space_ rule: a body is drawn at its true radius or at a minimum size in pixels, whichever
+is larger, recomputed every frame, and a satellite is shown once it separates from its parent on
+screen (D-047, PHYSICS.md §10.3). `orbitPaths.ts` samples each body's osculating ellipse from the
+same elements the ephemeris uses, and `poles.ts` gives each body its IAU spin axis.
+
+`scene.ts` owns the camera as well as the objects. The camera _follows_ a target body (or the
+Sun, or the midpoint of a pair) rather than a fixed point, which is what lets a true-scale
+close-up survive a running clock; it flies between targets with a log-distance interpolation,
+and a logarithmic depth buffer lets one camera span a 550 km orbit and Neptune.
 
 `trajectoryLines.ts` is pure geometry: it converts a heliocentric trajectory into body-centred
-scene units using the same exaggeration the body's own radius uses, and emits disjoint vertex
+scene units at the scene's true scale, and emits disjoint vertex
 pairs in time order. "Body-centred" means the body's position **at each sample's own time**, which
 is the one anchoring that is correct: the group transform then adds the body's live position back,
 so subtracting the epoch position instead would count the body's travel twice. That mistake is

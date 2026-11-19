@@ -73,13 +73,10 @@ describe('bundled scenarios', () => {
   });
 
   it('names the Earth-Moon scenario as focusing on a body rather than the Sun', () => {
-    // A 60-unit camera aimed at the Sun from Earth would show neither Earth nor the Moon.
-    //
-    // The assertion used to demand 'focus'. Since the Moon is now drawn at its true 72.4-unit
-    // separation, a camera centred on *either* endpoint puts the other off the frame — so the
-    // requirement "show both bodies" is now met by 'pair' (the midpoint) and 'focus' would
-    // actually fail it. The test keeps checking the thing that matters: the camera is not on
-    // the Sun, and it is close enough to see a single system rather than the whole one.
+    // A camera aimed at the Sun from Earth would show neither Earth nor the Moon. A camera
+    // centred on *either* endpoint puts the other off the frame, so "show both bodies" is met
+    // by 'pair' (the midpoint). The camera must also be close enough to see a single system
+    // rather than the whole one.
     const pair = scenarioById('earth-moon');
     expect(pair?.view.centeredOn).not.toBe('sun');
     expect(pair?.view.centeredOn).toBe('pair');
@@ -287,7 +284,12 @@ describe('validateScenario', () => {
   });
 
   it('collects every problem rather than stopping at the first', () => {
-    const result = validateScenario({ id: '', name: '', schemaVersion: 2 });
+    // A version this build does not read, so the version is one of the problems.
+    const result = validateScenario({
+      id: '',
+      name: '',
+      schemaVersion: SCENARIO_SCHEMA_VERSION + 1,
+    });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     // schemaVersion, id, name, description, epochUtc, startWarp, focus, view.

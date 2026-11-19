@@ -6,7 +6,7 @@ import {
   DEFAULT_ENVELOPE_UNITS,
   type LocalFramePoint,
 } from '../src/render/trajectoryLines.js';
-import { displayRadiusFor } from '../src/render/scale.js';
+import { UNITS_PER_M } from '../src/render/scale.js';
 import { BODIES } from '../src/core/ephemeris/solarSystem.js';
 import { bodyPosition } from '../src/core/ephemeris/ephemeris.js';
 import { jdFromIsoUtc, jdTtFromJdUtc } from '../src/core/time/time.js';
@@ -15,7 +15,8 @@ import type { Vec3 } from '../src/core/math/vec3.js';
 
 const EPOCH_TT = jdTtFromJdUtc(jdFromIsoUtc('2026-11-18T12:00:00Z'));
 const R_EARTH = BODIES.earth.radius;
-const DRAWN_EARTH = displayRadiusFor('earth', R_EARTH);
+/** Earth's radius in scene units: true scale, the same as every other length in the scene. */
+const DRAWN_EARTH = R_EARTH * UNITS_PER_M;
 
 /**
  * Heliocentric points from Earth-relative offsets.
@@ -175,14 +176,15 @@ describe('local frame for a trajectory', () => {
     expect(Array.from(result.segmentTimes)).toEqual([60, 120]);
   });
 
-  it('works for a body other than Earth, with its own exaggeration', () => {
+  it('works for a body other than Earth, at the same true scale', () => {
     const rJupiter = BODIES.jupiter.radius;
     const body = bodyPosition('jupiter', EPOCH_TT);
     const result = toLocalFrame(
       [{ r: { x: body.x + rJupiter, y: body.y, z: body.z }, timeSeconds: 0 }],
       { centralBody: 'jupiter', epochJdTt: EPOCH_TT },
     );
-    expect(pointAt(result, 0).x).toBeCloseTo(displayRadiusFor('jupiter', rJupiter), 6);
+    // Float32 storage: 0.0467 units carries about 4e-9 of rounding.
+    expect(pointAt(result, 0).x).toBeCloseTo(rJupiter * UNITS_PER_M, 8);
   });
 
   it('returns an empty result for no points', () => {
@@ -200,9 +202,9 @@ describe('local frame for a trajectory', () => {
   });
 
   it('has an envelope that reaches past the Moon', () => {
-    // 384,400 km from Earth is about 60 drawn Earth radii; the default envelope is 2000
-    // units, so a lunar trajectory is drawn rather than silently clipped.
-    const sceneRadius = (384400e3 / R_EARTH) * DRAWN_EARTH;
+    // 384,400 km from Earth; the default envelope reaches 1.06e7 km, so a lunar trajectory is
+    // drawn rather than silently clipped.
+    const sceneRadius = 384400e3 * UNITS_PER_M;
     expect(sceneRadius).toBeLessThan(DEFAULT_ENVELOPE_UNITS);
   });
 

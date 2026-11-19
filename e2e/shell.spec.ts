@@ -971,7 +971,7 @@ test.describe('scenario files and persistence', () => {
     const text = await readFile(path!, 'utf8');
     const parsed = JSON.parse(text) as Record<string, unknown>;
     expect(parsed['id']).toBe('gto-transfer');
-    expect(parsed['schemaVersion']).toBe(1);
+    expect(parsed['schemaVersion']).toBe(2);
     expect(parsed['name']).toBe('GTO to GEO');
     // Pretty-printed, because the panel promises a file a person can edit.
     expect(text).toContain('\n  "id"');
