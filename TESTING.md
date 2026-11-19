@@ -50,6 +50,11 @@ clock on screen advances" is an e2e test. The overlap is deliberately small.
   the call site.
 - Tests that would otherwise be flaky are made deterministic rather than retried. The e2e suite
   runs with `retries: 0` on purpose: a test that needs a retry is a test that is wrong.
+- `testTimeout` is 20 s, not Vitest's 5 s default. A handful of tests do real numerical work - the
+  lunar free-return flies a 4,000-sample N-body integration twice, the departure phase search
+  scans many geometries - and take 3-4 s each when the whole suite is competing for the CPU. At
+  5 s they failed on load rather than on the physics. A timeout is a load budget, not leniency:
+  no assertion, tolerance or test was changed to accommodate it (D-042).
 
 ## Known gotchas
 

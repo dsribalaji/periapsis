@@ -404,6 +404,12 @@ describe('assertScenario', () => {
   });
 });
 
+// The free-return tests each fly a 4,000-sample N-body integration, and the two below fly it
+// more than once (with and without the Moon; at two burn magnitudes). Measured on the
+// development machine they take about 1.5 s and 2.9 s alone, and 4.0 s when the whole suite is
+// running - which is why `testTimeout` in `vite.config.ts` is 20 s rather than the 5 s default.
+// No assertion is relaxed to fit; every threshold below is the one it was written with, and
+// PHYSICS.md justifies each.
 describe('the free-return scenario', () => {
   const scenario = () => scenarioById('lunar-free-return')!;
   const mission = () => scenario().mission!;

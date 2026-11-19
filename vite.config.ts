@@ -34,6 +34,14 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     reporters: ['default'],
+    // 20 s, up from Vitest's 5 s default. Several tests here do real numerical work - the lunar
+    // free-return flies a 4,000-sample N-body integration, the departure phase search scans many
+    // geometries - and they run one file per worker on a CPU that other workers share. At the
+    // default, the 4.0-4.4 s they take alone became timeouts when the whole suite ran at once,
+    // which reports a loaded machine as a physics failure. The timeout is a load budget, not a
+    // leniency setting: no assertion or tolerance was changed, and every number a test checks is
+    // still the number it was written with (see PHYSICS.md).
+    testTimeout: 20_000,
     coverage: {
       provider: 'v8',
       include: ['src/core/**', 'src/sim/**', 'src/scenarios/**'],

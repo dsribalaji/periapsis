@@ -674,3 +674,35 @@ One thing the wiring taught: `define` belongs at the Vite root config, not insid
 attempt to add it in both places typechecked as an error (`InlineConfig` has no `define`), and tsc
 is what caught the duplicate - the test runner would have ignored the second one without
 complaining. Keeping the declaration in one place is what makes the check meaningful.
+
+## D-042 - The test timeout is a load budget, and it was raised once, for a stated reason
+
+The suite passed at 664 tests. The first run after M8's changes, on the same machine, failed
+two tests in `scenario.test.ts` with `TestTimeoutError` at Vitest's 5 s default. Both passed when
+that file ran alone: 1.5 s and 2.9 s. Nothing in their code had changed - the M8 work touched a
+version constant and some prose - so this was not a regression in the physics, it was a machine
+that had just run 62 browser tests and was still busy.
+
+The same thing then happened to `departure.test.ts` (3.9 s alone), which confirms the pattern
+rather than a one-off.
+
+`testTimeout` is now 20 s suite-wide. That is a change that can hide a real hang, so the
+reasoning for accepting it is written down rather than assumed:
+
+- The tests that exceed 5 s are identifiable and few: the two free-return flights and the dense
+  departure scan. Every other test finishes in well under a second.
+- The failure mode is unambiguous. A timeout reports as a timeout, not as a wrong number, so a
+  real physics regression still fails on its assertion with a value in the message.
+- 20 s is not "long enough for anything". It is four times the worst observed under load, which
+  leaves room for a busy CI machine without leaving room for a genuine infinite loop to pass
+  unnoticed.
+
+What was deliberately _not_ done: no assertion was loosened, no tolerance was widened, no test
+was skipped or deleted, and no test was moved to a slower path. The physics thresholds in these
+tests are the numbers they were written with, and PHYSICS.md still justifies each one. Raising a
+clock and weakening a claim are different acts, and only the first happened here.
+
+The honest cost is recorded too: the suite's wall-clock time varies by several seconds run to run
+(measured 10.8 s to 15.9 s for the same 667 tests), which is exactly the variance that made a 5 s
+per-test budget unsafe. The timeout does not make a passing run slower; it stops a busy machine
+from being reported as a broken one.
