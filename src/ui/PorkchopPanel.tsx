@@ -377,8 +377,19 @@ export function PorkchopPanel({
             </div>
 
             <div className="porkchop-xaxis" aria-hidden="true">
+              {/* Labels are centred on their tick, except the two at the ends: centring those
+                  pushes half the text outside the plot, so they are aligned inwards instead. */}
               {departureTicks(result.grid, 4).map((tick, i) => (
-                <span key={i} style={{ left: `${tick.fraction * 100}%` }}>
+                <span
+                  key={i}
+                  style={
+                    tick.fraction < 0.02
+                      ? { left: '0%', transform: 'none' }
+                      : tick.fraction > 0.98
+                        ? { left: '100%', transform: 'translateX(-100%)' }
+                        : { left: `${tick.fraction * 100}%` }
+                  }
+                >
                   {tick.label}
                 </span>
               ))}
