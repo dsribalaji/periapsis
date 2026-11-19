@@ -351,6 +351,37 @@ states are exact; the **picture** is a star polygon. Raising the point cap is no
 renderer's sake). Making it a number that appears only when it matters is the honest option:
 measured 0.010 for the bundled LEO raise (dense) and 2.772 for the planned departure (aliased).
 
+## D-030 — Ground-track latitude is geocentric, and the obliquity is applied
+
+**Choice:** `buildGroundTrack` reports **geocentric** latitude (the spherical latitude of the
+radius vector) and applies the full ecliptic→equatorial rotation by `OBLIQUITY_J2000` before
+the GMST rotation.
+**Alternatives:** report geodetic (ellipsoid) latitude; skip the obliquity and treat the
+ecliptic frame as equatorial; report latitude relative to the ecliptic.
+**Why:** the two errors are not comparable in size, which is what makes the mixed choice
+correct rather than arbitrary. **Skipping the obliquity is a 23.44° error** — it would report a
+satellite in an ecliptic-plane orbit as permanently over the equator, and the ecliptic pole as
+66.56° latitude. **Geodetic latitude is a 0.19° error** (≈21 km at the equator). PHYSICS.md
+§10.4 deferred the obliquity correction to M6 explicitly, so applying it here closes that
+deferral rather than adding a new caveat. Geodetic is _not_ corrected because the v1 map is a
+graticule with no coastlines (D-004): 21 km is under a coarse pixel, so an ellipsoid would be
+code without truth. Both are stated in PHYSICS.md §13.2 instead of being left to be discovered.
+
+## D-031 — The antimeridian break is computed next to the wrap, not by the renderer
+
+**Choice:** `GroundTrackSample.crossesAntimeridian` is set by `buildGroundTrack` on the sample
+that ends a segment whose longitude wraps from +π to −π, and an undefined sample (craft at the
+Earth's centre) clears the previous longitude so no crossing is claimed across the gap.
+**Alternatives:** let the 2D renderer compare consecutive longitudes and split there; normalise
+longitudes to be continuous ("unwrapped") and let the map clip.
+**Why:** an unbroken polyline through a wrap draws a line the full width of the map, which is
+the standard ground-track rendering bug and reads as the satellite teleporting. Putting the
+decision in the renderer means it lives in a canvas that cannot be unit-tested (TESTING.md);
+putting it here makes it a value a test asserts — the suite requires exactly one crossing in a
+chosen full-day sweep, with the two straddling longitudes more than π apart, so a flag that is
+simply always false fails. Unwrapping the longitudes instead would push the problem into every
+downstream consumer that wants a real longitude for a readout.
+
 ## D-032 — A trajectory is drawn body-relative per sample, not epoch-relative
 
 **Choice:** `toLocalFrame` subtracts `bodyPosition(centralBody, epoch + t)` for **each sample's own

@@ -509,8 +509,14 @@ make, extended to one more object, and it is stated in the UI caveat.
 Orbit inclinations are measured from the **ecliptic** (the xy plane), not Earth's equator,
 which is tilted 23.4° from it. A scenario quoting "550 km at 53°" is describing a 53° ecliptic
 inclination; the real ISS flies 51.6° to the equator, which in this model's datum would be a
-different number. Not corrected in v1: doing it properly means carrying Earth's obliquity and
-a body-fixed frame, which arrives with the ground track in M6.
+different number.
+
+This is **not** corrected for the 3D view: the scene draws what the physics stores, and there
+no latitude exists to be wrong. It **is** corrected for the ground track (§13), because a
+latitude and a longitude are equatorial by definition and cannot be expressed in the ecliptic
+frame at all. §13.2 applies the obliquity rotation, so a ground track is equatorial even
+though the trajectory it came from is ecliptic. The two statements coexist: the _orbit_ is
+ecliptic, the _sub-satellite point_ is equatorial.
 
 ### 10.5 Tolerances attached to the display layer
 
@@ -919,3 +925,68 @@ One more consequence, stated because it looks like a bug and is not: at 3.03 km/
 is **below** the 3.87 km/s Oberth crossover, so `oberthHelps` is false and the 3,615 m/s in-plane
 floor is _above_ the cell's 3.03 km/s number. Departing slowly from a fast orbit costs more than
 the excess speed, because most of the fuel cancels speed the craft already has.
+
+## 13. Ground track
+
+Where a satellite is, in latitude and longitude, over the rotating Earth. `M6.1`:
+`src/core/groundTrack/groundTrack.ts`, purely computed, no panel yet (`M6.2` draws it).
+
+### 13.1 Three frames, in order
+
+The conversion is `heliocentric → Earth-relative → equatorial → Earth-fixed`. Each step is a
+distinct failure mode, so each is a separate exported function and a separate test.
+
+1. **Earth-relative.** The trajectory is stored heliocentrically, so the Earth's position is
+   subtracted. It must be the position at **that sample's own time**, not at the scenario
+   epoch. This is the same rule the 3D view now follows (§10.2, D-032): the epoch-relative form
+   counts the Earth's own displacement twice, and here it is wrong by a wide margin — the Earth
+   moves ~30 km/s, so one 96-minute revolution drifts ~170,000 km, or 27 Earth radii. Measured:
+   freezing the origin at a fixed JD fails 7 of the 20 ground-track tests. (Until M5.5 §10.2
+   documented the epoch anchor as the drawing convention; D-032 corrected it, and this module
+   was written against the corrected rule.)
+
+2. **Obliquity.** The physics frame is ecliptic-referenced (§10.4). Lat/lon are equatorial. The
+   rotation is about the vernal equinox by `OBLIQUITY_J2000` = 23°26'21.448". Omitting it is
+   not a small error: the ecliptic pole reports as 66.56° latitude instead of 90°, and a craft
+   in the ecliptic plane reads 0° latitude instead of tracing ±23.44°. Measured: removing this
+   rotation fails 8 of the 20 tests.
+
+3. **Sidereal rotation.** Earth-fixed is the equatorial inertial frame turned by −GMST, so
+   longitude is right ascension minus GMST. GMST here is the IAU-1982 polynomial in UT1 ≈ UTC
+   (§1.3), so this module inherits that section's error bound and adds none.
+
+### 13.2 Geocentric latitude, not geodetic
+
+The latitude reported is **geocentric**: the spherical latitude of the radius vector. On the
+WGS-84 ellipsoid the geodetic latitude differs by up to 0.19° (≈21 km at the equator). This is
+a stated limit, not an oversight: the v1.0.0 map is a graticule with no coastlines (D-004), so
+21 km is below one coarse pixel and an ellipsoid would add code without adding truth. It is
+revisited if and when real coastlines arrive.
+
+### 13.3 The antimeridian is a break in the line, not a jump across the map
+
+Longitude wraps from +π to −π. A ground track drawn as an unbroken polyline therefore draws a
+line the full width of the map at every wrap, which looks like a satellite teleporting and is
+the single most common ground-track rendering bug. `buildGroundTrack` sets
+`crossesAntimeridian` on the sample that ends such a segment, next to the wrap itself, so the
+renderer never has to infer it from two longitudes it may not have. An undefined sample (craft
+at the Earth's centre) also clears the previous longitude, so no crossing is claimed across a
+gap — the track genuinely breaks there.
+
+### 13.4 Tolerances
+
+| Assertion                                           | Bound    | Why                                                                                                                                                                    |
+| --------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Vernal equinox fixed by the obliquity rotation      | 1e-12    | It is an identity: the equinox lies in both planes, so x is unchanged and y, z are exactly 0.                                                                          |
+| Ecliptic pole at 90° − ε (≈66.5607°)                | 1e-9 rad | A published astronomical angle; the rotation is one matrix multiply, so only double rounding intervenes.                                                               |
+| Length preserved by the obliquity rotation          | 1e-12    | Orthogonal rotation.                                                                                                                                                   |
+| Rotation round trip                                 | 1e-12    | Two exact inverses.                                                                                                                                                    |
+| Point at RA = GMST reports longitude 0              | 1e-12    | The definition of longitude; this is a definition check, not an accuracy claim.                                                                                        |
+| Geostationary craft holds one longitude, 12 samples | 1e-7 rad | Two independently derived rates must agree: GMST (IAU-1982) and 2π/86164.0905 s. 1e-7 rad ≈ 0.6 m at the surface — far above rounding, far below a real rate mismatch. |
+| Longitude sweeps a full turn per sidereal day       | 1e-6 rad | Same pair of constants over 86164 s; 1e-6 rad ≈ 6 m.                                                                                                                   |
+| Equatorial orbit stays at latitude 0                | 1e-12    | Exact geometry: the offset is built in the equatorial plane.                                                                                                           |
+| Altitude = 400 km flat over an hour                 | 3 mm     | Input radius is exact in the equatorial plane; only the GMST rotation and back are involved, both orthogonal to 1e-15.                                                 |
+
+The 1e-7 and 1e-6 bounds above are the only "loose" ones and both exist to let two _different_
+formulations of the sidereal rate be compared. They are not tolerances on the module's own
+arithmetic; the module's arithmetic is checked at 1e-12 by the identity tests.

@@ -31,23 +31,24 @@ violation is a lint error.
 
 ### `src/core` — physics
 
-| Module                     | Responsibility                                                           |
-| -------------------------- | ------------------------------------------------------------------------ |
-| `math/vec3.ts`             | Vector algebra, rotations, the physics↔scene frame convention            |
-| `math/numeric.ts`          | Bracketing, clamping, tolerance helpers                                  |
-| `constants.ts`             | GM values, radii, AU, day constants. One source of truth                 |
-| `time/time.ts`             | Julian date ↔ calendar, leap seconds, TT/UT1, GMST, Earth rotation angle |
-| `orbit/kepler.ts`          | Kepler's equation, elliptic and hyperbolic, safeguarded Newton           |
-| `orbit/elements.ts`        | Classical elements ↔ state vector, both conic families                   |
-| `orbit/twoBody.ts`         | Closed-form two-body propagation                                         |
-| `integrate/integrators.ts` | RK4 fixed step, Dormand-Prince RK45 adaptive                             |
-| `ephemeris/solarSystem.ts` | JPL Table 1 elements, verbatim, with a citation                          |
-| `ephemeris/ephemeris.ts`   | Body position/velocity from those elements                               |
-| `ephemeris/nbody.ts`       | Restricted N-body acceleration, dominant-body selection                  |
-| `transfer/transfers.ts`    | Hohmann, bi-elliptic, plane change                                       |
-| `transfer/lambert.ts`      | Lambert's problem, single revolution, universal variables                |
-| `transfer/porkchop.ts`     | Grid of Lambert costs over departure date × flight time, cell asymptotes |
-| `transfer/departure.ts`    | Closed-form burn from a parking orbit onto a given hyperbola             |
+| Module                       | Responsibility                                                           |
+| ---------------------------- | ------------------------------------------------------------------------ |
+| `math/vec3.ts`               | Vector algebra, rotations, the physics↔scene frame convention            |
+| `math/numeric.ts`            | Bracketing, clamping, tolerance helpers                                  |
+| `constants.ts`               | GM values, radii, AU, day constants. One source of truth                 |
+| `time/time.ts`               | Julian date ↔ calendar, leap seconds, TT/UT1, GMST, Earth rotation angle |
+| `orbit/kepler.ts`            | Kepler's equation, elliptic and hyperbolic, safeguarded Newton           |
+| `orbit/elements.ts`          | Classical elements ↔ state vector, both conic families                   |
+| `orbit/twoBody.ts`           | Closed-form two-body propagation                                         |
+| `integrate/integrators.ts`   | RK4 fixed step, Dormand-Prince RK45 adaptive                             |
+| `ephemeris/solarSystem.ts`   | JPL Table 1 elements, verbatim, with a citation                          |
+| `ephemeris/ephemeris.ts`     | Body position/velocity from those elements                               |
+| `ephemeris/nbody.ts`         | Restricted N-body acceleration, dominant-body selection                  |
+| `transfer/transfers.ts`      | Hohmann, bi-elliptic, plane change                                       |
+| `transfer/lambert.ts`        | Lambert's problem, single revolution, universal variables                |
+| `transfer/porkchop.ts`       | Grid of Lambert costs over departure date × flight time, cell asymptotes |
+| `transfer/departure.ts`      | Closed-form burn from a parking orbit onto a given hyperbola             |
+| `groundTrack/groundTrack.ts` | Ecliptic→equatorial→Earth-fixed lat/lon, antimeridian breaks             |
 
 Everything here is a pure function unless it is documented otherwise. Orbits are parameterised
 by time, not by "now".
