@@ -119,6 +119,25 @@ describe('elements <-> state', () => {
     );
   });
 
+  it('round-trips an eccentric orbit at apoapsis, where acos used to lose precision', () => {
+    // The counterexample fast-check found (seed -1688004366): e = 0.79, 3e-10 rad short of
+    // apoapsis. With `acos` for the true anomaly the velocity came back 1.2e-7 off; with
+    // `atan2` it is at rounding level.
+    const el: OrbitalElements = {
+      a: 1040819.2166812739,
+      e: 0.7929095107472309,
+      i: 0.0001,
+      raan: 0,
+      argPeriapsis: 0.0009640873938426478,
+      trueAnomaly: 3.1415926532985807,
+      mu: MU_EARTH,
+    };
+    const s1 = elementsToState(el);
+    const s2 = elementsToState(stateToElements(s1, MU_EARTH));
+    expect(length(sub(s2.r, s1.r)) / length(s1.r)).toBeLessThan(1e-12);
+    expect(length(sub(s2.v, s1.v)) / length(s1.v)).toBeLessThan(1e-12);
+  });
+
   /** Element values round-trip when the orbit is not degenerate (e and i away from 0). */
   it('round-trips element values on well-conditioned orbits', () => {
     fc.assert(

@@ -19,12 +19,11 @@
  *    craft sitting exactly at Earth's centre was drawn 10 units away after 30 minutes), and the
  *    same error fed the altitude readout, which reported 337,018 km for a 550 km orbit.
  *
- * 2. **Which scale.** The solar-system view draws bodies with a cube-root compressed radius
- *    while positions stay linear, so the two scales differ by about 280x for Earth. A 400 km
- *    LEO orbit at the linear scale is 2.7e-3 scene units, smaller than a pixel and *inside*
- *    Earth's 1.2-unit mesh. Offsets therefore reuse the body's own exaggeration
- *    (`bodyRelativeScale`), which keeps the geometry about that body correct: a 400 km orbit
- *    sits just above the drawn surface, GEO sits at 6.6 drawn radii, the Moon at 60.
+ * 2. **Which scale.** The same true scale as everything else in the scene (`UNITS_PER_M`), so
+ *    the path and the bodies cannot disagree: a 400 km orbit sits 1.063 radii from the centre
+ *    of an Earth drawn at its real size, GEO at 6.6 radii, the Moon's orbit at 60. Under the
+ *    compressed layout the scene scales the whole group by the map's local scale, which keeps
+ *    the path consistent with the Moon drawn beside it (see `localUnitsPerMetre`).
  *
  * Output is disjoint vertex pairs in time order, plus the end time of each segment. Because
  * the segments are ordered, "already flown" is always a *prefix*, so highlighting it costs a
@@ -34,11 +33,11 @@
  * through a screenshot.
  */
 
-import { BODIES, type BodyId } from '../core/ephemeris/solarSystem.js';
+import type { BodyId } from '../core/ephemeris/solarSystem.js';
 import { bodyPosition } from '../core/ephemeris/ephemeris.js';
 import { SECONDS_PER_DAY } from '../core/constants.js';
 import type { Vec3 } from '../core/math/vec3.js';
-import { bodyRelativeScale, scaleOffset } from './scale.js';
+import { UNITS_PER_M, scaleOffset } from './scale.js';
 
 /** A point of the propagated trajectory, in heliocentric metres. */
 export interface LocalFramePoint {
@@ -51,9 +50,9 @@ export interface LocalFrameOptions {
   /** TT Julian date of the scenario epoch: time zero for the sample times. */
   readonly epochJdTt: number;
   /**
-   * How far from the body the line may reach, in scene units. Beyond this the frame's
-   * exaggeration has become meaningless (the craft is no longer near the body) and the
-   * point is dropped.
+   * How far from the body the line may reach, in scene units. Beyond this a body-centred
+   * drawing has stopped meaning anything (the craft is no longer near the body) and the point
+   * is dropped.
    */
   readonly envelopeUnits?: number;
 }
@@ -78,14 +77,16 @@ export interface LocalFrameResult {
 }
 
 /**
- * Envelope default.
+ * Envelope default, in metres from the central body.
  *
- * 2000 scene units is half the camera's maximum distance, so anything inside it can be
- * framed. For Earth that is about 1.06e7 km, or 27 Earth-Moon distances: generous for
- * anything a patched-conic view calls local, and small enough that leaving it is worth
- * telling the user about.
+ * 1.06e7 km, or 27 Earth-Moon distances: generous for anything a patched-conic view calls
+ * local, and small enough that leaving it is worth telling the user about. (The same physical
+ * reach the envelope had when it was stated in exaggerated scene units.)
  */
-export const DEFAULT_ENVELOPE_UNITS = 2000;
+export const DEFAULT_ENVELOPE_M = 1.06e10;
+
+/** The default envelope in scene units. */
+export const DEFAULT_ENVELOPE_UNITS = DEFAULT_ENVELOPE_M * UNITS_PER_M;
 
 /**
  * Converts heliocentric trajectory points to body-centred geometry in scene units.
@@ -99,8 +100,7 @@ export function toLocalFrame(
   const envelope = options.envelopeUnits ?? DEFAULT_ENVELOPE_UNITS;
   if (!(envelope > 0)) throw new Error('toLocalFrame: envelope must be positive');
 
-  const bodyRadiusM = BODIES[options.centralBody].radius;
-  const unitsPerMetre = bodyRelativeScale(options.centralBody, bodyRadiusM);
+  const unitsPerMetre = UNITS_PER_M;
 
   const positions: number[] = [];
   const segmentTimes: number[] = [];

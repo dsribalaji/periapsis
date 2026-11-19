@@ -96,25 +96,27 @@ export function stateToElements(state: StateVector, mu: number): OrbitalElements
   const s = retrograde ? -1 : 1;
   const equatorial = nMag <= 1e-12 * hMag;
 
+  /*
+   * Every in-plane angle is an atan2 of (sine, cosine) components, for the same reason the
+   * inclination is: `acos` of a cosine near +/-1 loses half the mantissa. At an apsis that cost
+   * a true-anomaly error of 2.6e-8 rad, which an e = 0.79 orbit at apoapsis amplified into a
+   * 1.2e-7 relative velocity error - found by the round-trip property test on a random seed
+   * (fast-check seed -1688004366). The sine is the component along h-hat of a cross product,
+   * which also carries the sign the old code had to patch on separately.
+   */
   if (e > ECC_EPS) {
     if (!equatorial) {
-      const cosw = dot(n, eVec) / (nMag * e);
-      const sign = eVec.z >= 0 ? 1 : -1;
-      argPeriapsis = wrapTwoPi(sign * Math.acos(Math.max(-1, Math.min(1, cosw))));
+      argPeriapsis = wrapTwoPi(Math.atan2(dot(cross(n, eVec), hHat), dot(n, eVec)));
     } else {
       argPeriapsis = wrapTwoPi(s * Math.atan2(eVec.y, eVec.x));
     }
-    const cosNu = dot(eVec, r) / (e * rMag);
-    const signNu = dot(cross(eVec, r), hHat) >= 0 ? 1 : -1;
-    trueAnomaly = wrapPi(signNu * Math.acos(Math.max(-1, Math.min(1, cosNu))));
+    trueAnomaly = wrapPi(Math.atan2(dot(cross(eVec, r), hHat), dot(eVec, r)));
   } else {
     // Circular orbit: argPeriapsis = 0 by convention and the anomaly carries the
     // argument of latitude.
     argPeriapsis = 0;
     if (!equatorial) {
-      const cosU = dot(n, r) / (nMag * rMag);
-      const signU = r.z >= 0 ? 1 : -1;
-      trueAnomaly = wrapPi(signU * Math.acos(Math.max(-1, Math.min(1, cosU))));
+      trueAnomaly = wrapPi(Math.atan2(dot(cross(n, r), hHat), dot(n, r)));
     } else {
       trueAnomaly = wrapPi(s * Math.atan2(r.y, r.x));
     }

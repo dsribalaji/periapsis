@@ -106,7 +106,8 @@ export function ridged3(x: number, y: number, z: number, octaves = 4, seed = 0):
   let frequency = 1;
   let norm = 0;
   for (let o = 0; o < octaves; o++) {
-    const n = 1 - Math.abs(valueNoise3(x * frequency, y * frequency, z * frequency, seed + o * 97) * 2 - 1);
+    const n =
+      1 - Math.abs(valueNoise3(x * frequency, y * frequency, z * frequency, seed + o * 97) * 2 - 1);
     sum += amplitude * n * n;
     norm += amplitude;
     frequency *= 2;

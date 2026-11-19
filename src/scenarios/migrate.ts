@@ -5,10 +5,9 @@
  * half of the question: a file written by an *older* build should be upgraded and loaded, not
  * refused, as long as the upgrade is something this build actually knows how to do.
  *
- * There is exactly one schema version today (1), so `MIGRATIONS` is empty and every file either
- * passes validation as-is or is rejected. That is the honest state of the world, and it is
- * written down here rather than implied, because the decision that matters is not "which
- * migrations exist" but "what happens when they do":
+ * The chain has one real step today, 1 -> 2 (true-scale bodies; see `migrate1to2`). The rules
+ * it follows were written down before any step existed, because the decision that matters is
+ * not "which migrations exist" but "what happens when they do":
  *
  *   - A file from a *newer* build is rejected with a message naming both versions. Loading it
  *     would mean guessing at fields this build has never seen, and a scenario that half-loads
@@ -22,6 +21,7 @@
  * chain. Testing it against the real, empty chain would only prove that empty chains are empty.
  */
 
+import { BODIES, type BodyId } from '../core/ephemeris/solarSystem.js';
 import { SCENARIO_SCHEMA_VERSION } from './types.js';
 import { validateScenario, type ScenarioIssue, type ValidationResult } from './validate.js';
 
@@ -32,8 +32,73 @@ export interface Migration {
   readonly apply: (input: Record<string, unknown>) => Record<string, unknown>;
 }
 
-/** The real chain. Empty until a breaking change ships; see the module header. */
-export const MIGRATIONS: readonly Migration[] = [];
+/**
+ * How many times larger than its true radius a version-1 build drew a body.
+ *
+ * Version 1 drew bodies at a cube-root-compressed radius (Earth at 1.2 scene units, 282x its
+ * true 0.00426), floored at 0.35 units, and a satellite at its true ratio to its parent's drawn
+ * radius. Restated here, frozen, because the renderer no longer has it and a migration must
+ * describe the build that *wrote* the file, not the one reading it.
+ */
+export function legacyExaggeration(id: BodyId): number {
+  const AU_M = 1.495978707e11;
+  const trueUnits = (r: number) => (r * 100) / AU_M;
+  const earthR = 6.371e6;
+  const def = BODIES[id];
+  let drawn: number;
+  if (def.parent !== null && def.parent !== 'sun') {
+    const parent = BODIES[def.parent];
+    const parentDrawn = Math.max(0.35, 1.2 * Math.cbrt(parent.radius / earthR));
+    drawn = Math.max(0.35, parentDrawn * (def.radius / parent.radius));
+  } else {
+    drawn = Math.max(0.35, 1.2 * Math.cbrt(def.radius / earthR));
+  }
+  return drawn / trueUnits(def.radius);
+}
+
+/**
+ * 1 -> 2: bodies went from an exaggerated radius to true scale.
+ *
+ * A system-wide view (`centeredOn: 'sun'`) is unaffected: planet positions were always at true
+ * scale. A body-centred view stored a distance tuned to the exaggerated body, so it is divided
+ * by that body's old exaggeration, which frames the body at the same apparent size it had. For
+ * a `pair` view the parent's factor is used; the app refits a pair on load anyway, so this is
+ * only the fallback.
+ *
+ * Tolerant of a malformed `view`: anything it cannot read is passed through unchanged, and the
+ * validator that runs next reports it with the usual field path.
+ */
+const migrate1to2: Migration = {
+  from: 1,
+  apply: (input) => {
+    const view = input['view'];
+    const focus = input['focus'];
+    if (typeof view !== 'object' || view === null || Array.isArray(view)) {
+      return { ...input, schemaVersion: 2 };
+    }
+    const v = view as Record<string, unknown>;
+    const distance = v['distanceUnits'];
+    const centeredOn = v['centeredOn'];
+    if (
+      typeof distance !== 'number' ||
+      typeof focus !== 'string' ||
+      !(focus in BODIES) ||
+      (centeredOn !== 'focus' && centeredOn !== 'pair')
+    ) {
+      return { ...input, schemaVersion: 2 };
+    }
+    const body = focus as BodyId;
+    const reference = centeredOn === 'pair' ? (BODIES[body].parent ?? body) : body;
+    return {
+      ...input,
+      schemaVersion: 2,
+      view: { ...v, distanceUnits: distance / legacyExaggeration(reference) },
+    };
+  },
+};
+
+/** The real chain, oldest first. */
+export const MIGRATIONS: readonly Migration[] = [migrate1to2];
 
 export type MigrationResult =
   | { readonly ok: true; readonly scenario: ValidationResult }

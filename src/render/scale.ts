@@ -1,99 +1,109 @@
 /**
  * Scene scale: converts physics distances (metres) into rendering units.
  *
- * Two separate problems are solved here, and conflating them is the classic source of
- * unviewable solar-system scenes:
+ * **One scale for everything.** Positions, body radii, satellite offsets and spacecraft
+ * trajectories all use the same metres-to-units factor. That is the only arrangement in which
+ * every geometric relation on screen is true at once: the Moon is 60 Earth radii from an Earth
+ * of the right size, a 550 km orbit hugs the planet at 1.086 radii, and no satellite can be
+ * drawn inside, or absurdly far from, the body it orbits.
  *
- * 1. **Units.** Physics works in metres; rendering works in arbitrary units where "1" is
- *    something the camera can see. A single scale factor handles that.
+ * Earlier versions drew bodies at a cube-root-compressed radius (Earth 282x too large) and then
+ * had to drag every satellite and trajectory out by the same factor so they cleared the inflated
+ * planet. The Moon then sat 72 units from Earth while Earth is only 100 units from the Sun, i.e.
+ * three quarters of the way to the Sun. No camera angle fixes a position, so that design was
+ * replaced rather than patched (DECISIONS.md D-047).
  *
- * 2. **Dynamic range.** Neptune is 30 AU from the Sun while a LEO satellite is 400 km above
- *    Earth — a ratio of about 1e7. Any single linear scale either puts Earth's surface
- *    inside the Sun's mesh or makes a satellite invisible. So bodies are drawn with a
- *    *display radius* that is a compressed function of their real radius, while their
- *    *orbital positions* stay linear in the physical distance. The scene is therefore
- *    positionally honest and dimensionally dishonest, which is the standard compromise for
- *    solar-system viewers (and is labelled as such in the UI).
+ * **Visibility is a screen-space rule, not a world-space one.** At true scale Earth is 0.004
+ * units across and invisible from 300 units away. So a body is drawn at whichever is larger:
+ * its true radius, or a minimum radius in *pixels* (`MIN_PIXEL_RADIUS`). Zoomed in, bodies are
+ * exactly their real size; zoomed out, they become markers of fixed apparent size, which is how
+ * planetarium software stays legible without lying about where anything is.
  *
- * Body radii use a cube-root compression: r_display ∝ r_real^(1/3). That preserves ordering
- * and rough relative size while turning a 1e7 radius ratio into about 2e2. The Sun, Earth
- * and a satellite remain mutually distinguishable and none is drawn at zero size.
+ * The one place the minimum-pixel rule would mislead is a satellite whose marker overlaps its
+ * parent's. That is handled by `satelliteResolvable`: a satellite is drawn only once it is far
+ * enough from its parent on screen to be seen as separate.
  */
 
 import { AU_M } from '../core/constants.js';
-import { BODIES, type BodyId } from '../core/ephemeris/solarSystem.js';
+import type { BodyId } from '../core/ephemeris/solarSystem.js';
 
-/** Scene units per astronomical unit. Chosen so 1 AU ≈ 100 units: comfortable camera range. */
+/** Scene units per astronomical unit. Chosen so 1 AU = 100 units: comfortable camera range. */
 export const UNITS_PER_AU = 100;
 
-/** Scene units per metre for orbital positions. */
+/** Scene units per metre, for positions, radii and body-relative offsets alike. */
 export const UNITS_PER_M = UNITS_PER_AU / AU_M;
 
-/**
- * Compressed display radius for a body, in scene units.
- *
- * `k * (r / r_earth)^(1/3)` with the Earth's display radius fixed at 1.2 units, so an
- * Earth-sized body is drawn at 1.2 and everything else is scaled relative to it by the cube
- * root of its true radius ratio.
- */
-const EARTH_DISPLAY_RADIUS = 1.2;
-
-export function displayRadius(bodyRadiusM: number): number {
-  const earthRadiusM = 6.371e6;
-  return EARTH_DISPLAY_RADIUS * Math.cbrt(bodyRadiusM / earthRadiusM);
-}
-
-/** A minimum on-screen size so that small bodies stay clickable. */
-export const MIN_DISPLAY_RADIUS = 0.35;
-
-/**
- * Display radius for a body, in scene units.
- *
- * Two rules, because a planet and a *satellite* have different jobs to do on screen.
- *
- * **Heliocentric bodies** (the Sun and the planets — anything whose parent is the Sun or which
- * has no parent) use the cube-root compression. Their true sizes span 1e6 and their distances
- * span 1e2 AU, so some compression is unavoidable; cube root keeps the ordering and the rough
- * ranking while fitting everything on one screen. This must not be "true ratio to the parent"
- * for planets: Earth's true radius is 1/109 of the Sun's, which would draw it at 0.05 units and
- * the whole solar system as dust.
- *
- * **Satellites** (a body whose parent is not the Sun, i.e. the Moon) are drawn at their **true
- * radius ratio to their parent**, carried by the parent's own display radius. This is not a
- * cosmetic choice. Cube root gave the Moon 0.648 of Earth's drawn radius against a true 0.273 —
- * a Moon 2.4x too large, and, with the old 1.6x "visibility" fudge, *larger than the Earth it
- * orbits*. A satellite is always viewed as a member of a system the camera has already zoomed
- * into, so there is no dynamic-range argument for distorting it.
- */
-export function displayRadiusFor(id: BodyId, radiusM: number): number {
-  const parent = BODIES[id].parent;
-  const isSatellite = parent !== null && parent !== 'sun';
-  if (isSatellite && parent) {
-    const parentDef = BODIES[parent];
-    const parentDrawn = displayRadiusFor(parent, parentDef.radius);
-    // True size ratio, carried by the parent's drawn scale: Earth's diameter is 3.67 Moons,
-    // and that ratio now survives onto the screen.
-    return Math.max(MIN_DISPLAY_RADIUS, parentDrawn * (radiusM / parentDef.radius));
-  }
-  return Math.max(MIN_DISPLAY_RADIUS, displayRadius(radiusM));
+/** A body's true radius in scene units. */
+export function trueRadiusUnits(radiusM: number): number {
+  return radiusM * UNITS_PER_M;
 }
 
 /**
- * Where a body sits in scene units relative to its parent, for a true parent-relative offset.
+ * The smallest radius, in screen pixels, each body is drawn at.
  *
- * Bodies on heliocentric orbits are placed by the radial mapping, which is honest about the
- * *layout*. A satellite cannot be: the Moon's true offset at the linear scale is 0.257 scene
- * units while the Earth is drawn at radius 1.2, so the Moon would be drawn **inside** the
- * planet it orbits. It is therefore placed at the parent's own exaggeration — the same
- * `drawn radius / true radius` factor trajectories already use (§10.3) — which puts the Moon
- * 72.4 units out and makes it agree with the drawn trajectory rather than contradict it.
+ * Ordered by real size so the markers still rank correctly (the Sun largest, the giants next,
+ * the Moon smallest) even when every body is far below a pixel. The values are about what a
+ * finger or a mouse pointer can hit; picking uses the drawn mesh, so the marker *is* the
+ * click target.
  */
-export function parentRelativeOffset(
-  parent: BodyId,
-  parentRadiusM: number,
-  offsetM: number,
+export const MIN_PIXEL_RADIUS: Readonly<Record<BodyId, number>> = {
+  sun: 9,
+  mercury: 3,
+  venus: 3.6,
+  earth: 3.8,
+  moon: 2.4,
+  mars: 3.3,
+  jupiter: 5.5,
+  saturn: 5,
+  uranus: 4.4,
+  neptune: 4.4,
+};
+
+/**
+ * Scene units covered by one screen pixel at a given distance from a perspective camera.
+ *
+ * The visible height at distance `d` is `2 d tan(fov / 2)`; dividing by the viewport's pixel
+ * height gives the size of a pixel there.
+ */
+export function unitsPerPixelAt(
+  distanceUnits: number,
+  verticalFovRad: number,
+  viewportHeightPx: number,
 ): number {
-  return offsetM * (displayRadiusFor(parent, parentRadiusM) / parentRadiusM);
+  if (!(viewportHeightPx > 0)) return 0;
+  return (2 * Math.max(0, distanceUnits) * Math.tan(verticalFovRad / 2)) / viewportHeightPx;
+}
+
+/**
+ * The radius a body is drawn at: its true radius, or the minimum pixel size if that is bigger.
+ *
+ * Never smaller than the truth. That is the property that keeps the picture honest when
+ * zoomed in: a body you can resolve is exactly its real size.
+ */
+export function drawnRadiusUnits(
+  trueUnits: number,
+  unitsPerPixel: number,
+  minPixelRadius: number,
+): number {
+  return Math.max(trueUnits, minPixelRadius * unitsPerPixel);
+}
+
+/**
+ * Whether a satellite can be told apart from its parent on screen.
+ *
+ * Both are drawn at least `MIN_PIXEL_RADIUS` across. When the camera is far away the Moon's
+ * true 0.26-unit offset from Earth is a fraction of a pixel, so the two markers would overlap
+ * and the Moon would read as a blemish on Earth. It is hidden until the gap between the two
+ * discs is at least `gapPx` - which is a statement about the *screen*, made after the
+ * position is already correct, not a fix for a wrong position.
+ */
+export function satelliteResolvable(
+  separationPx: number,
+  parentRadiusPx: number,
+  childRadiusPx: number,
+  gapPx = 3,
+): boolean {
+  return separationPx >= parentRadiusPx + childRadiusPx + gapPx;
 }
 
 /** Radial mapping from physics distance to scene units. */
@@ -106,18 +116,11 @@ export type RadialMode = 'linear' | 'compressed';
  *
  * The solar system spans 0.39 AU to 30 AU, a ratio of 77; the interesting part (the
  * terrestrial planets) lives inside 1.6 AU and the giants out to 30. On a linear scale, a
- * view wide enough to hold Neptune puts Earth at 3% of the radius — three pixels, invisible.
+ * view wide enough to hold Neptune puts Earth at 3% of the radius.
  *
  * A logarithmic radius compresses the whole system into 71-209 units, so everything can be
- * seen at once. Two properties make this acceptable rather than merely convenient:
- *
- *   - It is radial and monotone, so circular orbits stay circular and nothing can cross
- *     anything else. Ordering is preserved exactly.
- *   - It is a pure function of distance from the Sun, so relative angles are exact.
- *
- * What it is NOT is to scale, which is why it is a labelled, user-visible toggle and not the
- * only mode. The linear mapping remains the default for the inner system, where it is
- * honest and perfectly readable.
+ * seen at once. It is radial and monotone, so ordering is exact and directions from the Sun
+ * are exact; it is not to scale, which is why it is a labelled, user-visible toggle.
  */
 const COMPRESS_K = 75;
 const COMPRESS_R0 = 0.05;
@@ -127,6 +130,22 @@ export function radialUnits(radiusM: number, mode: RadialMode = 'linear'): numbe
   if (mode === 'linear') return radiusM * UNITS_PER_M;
   const au = radiusM / AU_M;
   return COMPRESS_K * Math.log10(1 + Math.max(0, au) / COMPRESS_R0);
+}
+
+/**
+ * Scene units per metre for geometry *around* a body at a given distance from the Sun.
+ *
+ * Under the linear mapping this is simply `UNITS_PER_M`. Under the compressed mapping the
+ * layout has no single scale, so a body-centred system (the Moon about Earth, a spacecraft
+ * about its planet) uses the map's *local* scale at the body's distance - the derivative of
+ * `radialUnits`. That keeps each local system internally consistent with its neighbourhood:
+ * small offsets are drawn at the same scale the map uses for small radial steps right there.
+ */
+export function localUnitsPerMetre(heliocentricDistanceM: number, mode: RadialMode): number {
+  if (mode === 'linear') return UNITS_PER_M;
+  const au = Math.max(0, heliocentricDistanceM) / AU_M;
+  const unitsPerAu = COMPRESS_K / (Math.LN10 * (COMPRESS_R0 + au));
+  return unitsPerAu / AU_M;
 }
 
 /**
@@ -144,40 +163,15 @@ export function scalePosition(
   if (mode === 'linear') return toScene(x, y, z);
   const r = Math.hypot(x, y, z);
   if (r === 0) return [0, 0, 0];
-  // The mapped scene radius, applied to the direction cosines. Note this must NOT go
-  // through toScene afterwards: toScene converts metres to scene units, but this branch is
-  // already in scene units, so passing through it would scale the result twice.
-  const mappedRadius = radialUnits(r, mode);
-  const k = mappedRadius / r;
-  const sx = x * k;
-  const sy = y * k;
-  const sz = z * k;
+  // Already in scene units here, so this must NOT go through toScene afterwards.
+  const k = radialUnits(r, mode) / r;
   // Same axis convention as toScene: (x, y, z)_physics -> (x, z, -y)_scene.
-  return [sx, sz, -sy];
+  return [x * k, z * k, -y * k];
 }
 
 /** Converts a physics position (metres) to scene units. */
 export function toScene(x: number, y: number, z: number): [number, number, number] {
   return [x * UNITS_PER_M, z * UNITS_PER_M, -y * UNITS_PER_M];
-}
-
-/**
- * Scene units per metre for an offset from a body's centre.
- *
- * This is the same compression the bodies themselves are drawn with, and it has to be,
- * because the two scales are wildly different: at `UNITS_PER_M` an Earth radius is
- * 4.3e-3 scene units while Earth is *drawn* at 1.2. A 400 km LEO orbit would therefore be
- * drawn inside Earth's mesh and be invisible.
- *
- * Dividing the drawn radius by the true radius gives the exaggeration factor for that body
- * (about 282 for Earth), already in scene units per metre. Applying it to the offset means a
- * 400 km orbit sits just above Earth's drawn surface, a GEO orbit at 6.6 Earth radii sits at
- * 6.6 drawn radii, and the Earth-Moon distance (~60 Earth radii) is 72 units — visible at the
- * Earth-Moon camera distance. Relative geometry about one body is therefore correct; absolute
- * distance across bodies is not, in exactly the way body radii are already not.
- */
-export function bodyRelativeScale(bodyId: BodyId, bodyRadiusM: number): number {
-  return displayRadiusFor(bodyId, bodyRadiusM) / bodyRadiusM;
 }
 
 /** Scales a body-relative offset (metres) into scene units, keeping the frame convention. */
@@ -196,7 +190,7 @@ export function scaleOffset(
  * Physics is right-handed with +z toward the ecliptic north pole, viewed from +z looking
  * down. Three.js is right-handed with +y up and the camera looking down -z. Mapping
  * (x, y, z)_physics -> (x, z, -y)_scene keeps the ecliptic in the scene's xz plane, puts
- * ecliptic north along scene +y, and preserves handedness — so orbital motion stays
+ * ecliptic north along scene +y, and preserves handedness - so orbital motion stays
  * counter-clockwise when viewed from above, as it is in reality, rather than appearing
  * mirrored.
  */
