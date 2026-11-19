@@ -76,6 +76,22 @@ a runtime `fetch` or a remote stylesheet, that is a defect, not a preference:
 - Nothing in `src/ui` or `src/render` loads a remote resource; fonts are system fonts.
 - `dist/` is self-contained apart from the files it ships.
 
+## Releasing
+
+The version has exactly one source: `package.json`. `vite.config.ts` reads it at build time and
+injects `__APP_VERSION__`, which the sidebar badge renders, so the number a user sees cannot
+disagree with the tag (D-041). Do not type a version into any other file.
+
+1. Edit `version` in `package.json`.
+2. `npm install --package-lock-only` to carry it into `package-lock.json`.
+3. Add the release's section to `CHANGELOG.md`, newest first.
+4. `npm run verify && npm run test:e2e`.
+5. `git tag -a v<version> -m "Periapsis <version>"`, then commit.
+
+`tests/version.test.ts` fails if the injected constant and `package.json` disagree, and the shell
+e2e test asserts the badge matches a version pattern, so a missed step is caught rather than
+shipped.
+
 ## Troubleshooting
 
 | Symptom                                 | Cause                                                 | Fix                                                                                                         |

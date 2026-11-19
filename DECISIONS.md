@@ -647,3 +647,30 @@ each looked correct in isolation. The fix is a guard for the element types that 
 and Enter, and it is worth noting where it came from: making a widget native is what made the
 collision visible, because a `div role="button"` had been swallowing nothing and the test that now
 catches it could not have been written against the old markup in the same way.
+
+## D-041 - The version has one source, and the build injects it
+
+`package.json` said `0.0.0` and the sidebar badge said `v0.1.0-dev`. Neither was `1.0.0`, and
+nothing tied them together, so the release would have shipped a badge that disagreed with its own
+tag. Three things show a version to a person - the badge, the build, and the tag - and a
+hand-maintained copy of a version number is a copy that eventually goes stale, exactly as this one
+had.
+
+`vite.config.ts` now reads `package.json` and injects `__APP_VERSION__` as a compile-time constant;
+the badge renders `v{__APP_VERSION__}` and never a literal. The number lives in the bundle, so
+displaying a version still reads no file and makes no request, which matters for an app that
+promises nothing leaves the machine.
+
+`tests/version.test.ts` asserts three things: the injected constant equals the imported package
+version, the version is shaped like something a tag can carry, and a direct read of `package.json`
+agrees with the constant as well. The last one is the one that catches a mis-wired `define`, which
+is the only part of this that can actually break; the first would still pass if the import were
+pointed at a different file.
+
+The e2e shell test asserts the badge matches `/^v\d+\.\d+\.\d+/` rather than a literal, so it
+checks the wiring end to end without needing an edit every release.
+
+One thing the wiring taught: `define` belongs at the Vite root config, not inside `test`. An
+attempt to add it in both places typechecked as an error (`InlineConfig` has no `define`), and tsc
+is what caught the duplicate - the test runner would have ignored the second one without
+complaining. Keeping the declaration in one place is what makes the check meaningful.

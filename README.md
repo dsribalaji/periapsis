@@ -3,7 +3,7 @@
 An offline orbital mechanics sandbox and mission designer. Runs entirely in the browser,
 needs no account, no server and no network at runtime.
 
-**Status: in development.** The physics core is complete and tested (664 unit tests); the 3D
+**Status: v1.0.0.** The physics core is complete and tested (667 unit tests); the 3D
 application shell runs with scenario loading, mouse camera control, time controls and a working
 mission layer - a spacecraft flies a planned path drawn in the view, with maneuver nodes and a
 delta-v budget. A porkchop plot finds interplanetary launch windows by solving Lambert's problem
@@ -71,7 +71,7 @@ npm run dev        # http://localhost:5183
 To check it:
 
 ```
-npm run verify     # typecheck + lint + 664 unit tests + build
+npm run verify     # typecheck + lint + 667 unit tests + build
 npm run test:e2e   # 62 Playwright tests against the real app
 npm run bench      # performance numbers, in Node
 npm run bench:frames # frame rate and scenario-switch latency, in a browser
@@ -91,7 +91,7 @@ convention, so the boundary cannot quietly erode (ADR-0001).
 | Command                | What it does                                |
 | ---------------------- | ------------------------------------------- |
 | `npm run dev`          | Vite dev server on http://localhost:5183    |
-| `npm test`             | unit tests (664)                            |
+| `npm test`             | unit tests (667)                            |
 | `npm run test:e2e`     | Playwright end-to-end tests (62)            |
 | `npm run typecheck`    | `tsc` with strict settings                  |
 | `npm run lint`         | ESLint, including the core-purity boundary  |
@@ -116,6 +116,7 @@ All of the above pass. See `STATE.md` for the numbers from the last real run, an
 - `ADR/` — the seven decisions that shaped the codebase
 - `DECISIONS.md` — smaller judgment calls made without asking
 - `BLOCKERS.md` — anything currently stuck
+- `CHANGELOG.md` — what shipped in each release
 
 ## Accuracy, honestly
 

@@ -21,12 +21,18 @@ Last full run: `npm run verify` (2026-11-19) and `npx playwright test`.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 664 tests / 28 files                               |
+| Unit tests (`vitest run`)   | PASS, 667 tests / 29 files                               |
 | Build (`vite build`)        | PASS, 860.96 kB JS (235.42 kB gzip)                      |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
 | E2E (`npx playwright test`) | PASS, 62 tests against the real app in headless Chromium |
 
-All six were run, not inferred. The e2e suite starts its own dev server and drives the real
+All six were run, not inferred. M8.1 also proved the clean-install path: a fresh `git clone` of
+this repository into an empty directory, `npm ci` from the lockfile (201 packages, 0
+vulnerabilities, 27 s), then `npm run verify` and `npx playwright test` in that clone. The build
+produced the same asset hashes as the working tree, so the output is reproducible from the
+lockfile alone and nothing in the working tree is load-bearing.
+
+The e2e suite starts its own dev server and drives the real
 page: it asserts React mounts, a WebGL canvas is created and sized, the clock advances while
 running, pausing freezes it, selecting a body updates the inspector, dragging orbits without
 reselecting, the wheel zooms, the radial-mode toggle changes what is on screen, a scenario
@@ -165,6 +171,7 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/scenarioIo.test.ts`      | 23    | export round trip, filenames, import errors, hostile ids           |
 | `tests/persist.test.ts`         | 17    | envelope, corrupt/newer handling, refusing stores, round trip      |
 | `tests/boot.test.ts`            | 7     | restore, discard, preserve-newer, no store, custom ids             |
+| `tests/version.test.ts`         | 3     | version injected from package.json, format, single source          |
 | `e2e/shell.spec.ts`             | 62    | boot, WebGL, clock, picking, drag, mission, plot, map, files, a11y |
 
 ## Module inventory
@@ -254,8 +261,8 @@ replays a measured trajectory rather than searching for one).
 | M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
 | M5 mission planning       | done (M5.1–M5.5)                                                 |
 | M6 ground track + Moon    | done (M6.1 physics, M6.2 panel, M6.3 free return)                |
-| M7 scenarios + polish     | M7.1, M7.2, M7.3 and M7.4 done; M8 open                          |
-| M8 hardening              | not started                                                      |
+| M7 scenarios + polish     | done (M7.1–M7.4)                                                 |
+| M8 hardening              | M8.1, M8.2 and M8.3 done; M8.4 report outstanding                |
 
 ## Known limitations carried forward
 

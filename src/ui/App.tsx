@@ -537,7 +537,12 @@ export function App(): React.JSX.Element {
       <aside className="sidebar" id="sidebar" aria-label="Controls" tabIndex={-1}>
         <div className="brand">
           <h1>Periapsis</h1>
-          <span className="version">v0.1.0-dev</span>
+          {/*
+            The version comes from `package.json` through a compile-time constant, so the badge
+            cannot disagree with the release tag. `v1.0.0` here is the same string the build
+            injects - see `vite.config.ts` and `tests/version.test.ts`.
+          */}
+          <span className="version">v{__APP_VERSION__}</span>
         </div>
 
         <div className="section">

@@ -15,6 +15,9 @@ test.describe('application shell', () => {
 
     await expect(page).toHaveTitle(/Periapsis/);
     await expect(page.getByRole('heading', { name: 'Periapsis' })).toBeVisible();
+    // The badge is injected from package.json at build time, so this asserts the wiring rather
+    // than a literal: a version that disagrees with the release tag is a lie in every bug report.
+    await expect(page.locator('.brand .version')).toHaveText(/^v\d+\.\d+\.\d+/);
 
     // The time bar and body list are the two things a user needs on load.
     await expect(page.getByText('no data leaves this machine')).toBeVisible();

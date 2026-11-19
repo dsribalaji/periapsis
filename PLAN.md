@@ -168,7 +168,7 @@ delete one. Those items stay unticked rather than being checked off on the stren
       `tabIndex={-1}` so the browser really focuses it rather than only moving the sequential
       focus point). `role="img"` on the 3D viewport and on both canvases, each with a label that
       describes what is drawn. The body list became `ul > li > button` instead of `div
-  role="button"` with a keydown handler, so Enter, Space, focus order and the focus ring all
+role="button"` with a keydown handler, so Enter, Space, focus order and the focus ring all
       come from the element. `aria-current` marks the body on screen. A polite live region reports
       pause state and warp but not the ticking time. Import failures are `role="alert"`. Every
       filtered input's accessible name now starts with its visible label text. `--text-faint`
@@ -190,9 +190,9 @@ delete one. Those items stay unticked rather than being checked off on the stren
 
 ## M8 — v1.0.0 hardening
 
-- [ ] M8.1 Full verification sweep from a clean install
-- [ ] M8.2 Docs completeness audit against the spec
-- [ ] M8.3 CHANGELOG v1.0.0, local tag
+- [x] M8.1 Full verification sweep from a clean install
+- [x] M8.2 Docs completeness audit against the spec
+- [x] M8.3 CHANGELOG v1.0.0, local tag
 - [ ] M8.4 Final report
 
 ## Deferred / not planned for v1.0.0
