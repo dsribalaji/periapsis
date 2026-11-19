@@ -55,6 +55,11 @@ clock on screen advances" is an e2e test. The overlap is deliberately small.
   scans many geometries - and take 3-4 s each when the whole suite is competing for the CPU. At
   5 s they failed on load rather than on the physics. A timeout is a load budget, not leniency:
   no assertion, tolerance or test was changed to accommodate it (D-042).
+- **Never run two e2e suites at once.** Playwright uses one port (5183) and one `test-results/`
+  directory, so overlapping runs delete each other's trace artifacts and kill each other's dev
+  server. The symptom is a wall of `net::ERR_CONNECTION_REFUSED` and `ENOENT ... .trace`, which
+  looks like a broken app and is not. Check for a stray Chromium first
+  (`Get-Process chrome | Stop-Process -Force`), remove `test-results/`, and run again.
 
 ## Known gotchas
 
