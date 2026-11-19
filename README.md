@@ -3,7 +3,7 @@
 An offline orbital mechanics sandbox and mission designer. Runs entirely in the browser,
 needs no account, no server and no network at runtime.
 
-**Status: v1.0.0.** The physics core is complete and tested (667 unit tests); the 3D
+**Status: v1.0.0.** The physics core is complete and tested (672 unit tests); the 3D
 application shell runs with scenario loading, mouse camera control, time controls and a working
 mission layer - a spacecraft flies a planned path drawn in the view, with maneuver nodes and a
 delta-v budget. A porkchop plot finds interplanetary launch windows by solving Lambert's problem
@@ -23,6 +23,11 @@ and press "Plan departure" and the cell becomes a maneuver node on the craft —
 burn out of its parking orbit, with the Oberth effect, the plane-change penalty the geometry
 forces, and the timing shift onto the cheapest point of the orbit all reported rather than
 assumed.
+
+Bodies are drawn with generated surfaces — continents and cloud on Earth, maria on the Moon,
+banded turbulence on the gas giants, a granulated photosphere on the Sun — and a satellite is
+drawn at its true size ratio to the planet it orbits. Textures are procedural and deterministic,
+so nothing is downloaded and the same build produces the same pixels.
 
 The scenario in use is remembered in the browser, so a reload returns to it instead of the
 default, and it can be downloaded as a JSON file and opened again - by hand-editing the file you

@@ -3,6 +3,7 @@ import {
   bodyRelativeScale,
   displayRadius,
   displayRadiusFor,
+  parentRelativeOffset,
   scaleOffset,
   toScene,
   radialUnits,
@@ -73,11 +74,24 @@ describe('scene scale', () => {
     expect(displayRadiusFor('moon', RADIUS.moon)).toBeGreaterThanOrEqual(MIN_DISPLAY_RADIUS);
   });
 
-  it('draws the Moon large enough to see beside Earth', () => {
+  it('draws the Moon smaller than Earth, at its true size ratio', () => {
+    // This test previously asserted a deliberate 1.6x exaggeration that made the Moon *larger*
+    // than the Earth it orbits (1.245 against 1.200). That was the bug: a moon bigger than its
+    // planet is not a visibility compromise, it is a wrong picture. The requirement it was
+    // really serving — the Moon is visible beside Earth — is now met by placing it at the
+    // parent-relative distance instead of by inflating its radius.
     const moon = displayRadiusFor('moon', RADIUS.moon);
-    const plain = displayRadius(RADIUS.moon);
-    // The deliberate 1.6x exaggeration for visibility.
-    expect(moon).toBeCloseTo(Math.max(MIN_DISPLAY_RADIUS, plain * 1.6), 9);
+    const earth = displayRadiusFor('earth', RADIUS.earth);
+    expect(moon).toBeLessThan(earth);
+
+    // The underlying ratio is exactly true; the drawn one is a touch larger only because the
+    // Moon's true-ratio radius (0.327 units) sits just under the 0.35 clickability floor.
+    const trueRatio = RADIUS.moon / RADIUS.earth;
+    expect(trueRatio).toBeCloseTo(0.2727, 3);
+    expect(moon / earth).toBeGreaterThanOrEqual(trueRatio);
+    expect(moon / earth).toBeCloseTo(Math.max(MIN_DISPLAY_RADIUS / earth, trueRatio), 9);
+    // The clamp costs at most 7% in size — the old fudge cost 240%.
+    expect(moon / earth).toBeLessThan(trueRatio * 1.1);
   });
 
   it('applies the minimum radius to tiny bodies', () => {
@@ -168,6 +182,20 @@ describe('body-relative scaling', () => {
     // The exaggeration over the plain linear scale is the drawn radius over the true one.
     expect(s).toBeCloseTo(displayRadiusFor('earth', BODIES.earth.radius) / BODIES.earth.radius, 9);
     expect(s / UNITS_PER_M).toBeGreaterThan(200);
+  });
+
+  it('draws a satellite outside its parent, never inside it', () => {
+    // The bug this guards: at the linear scale the Moon's true offset is 0.257 scene units
+    // against an Earth drawn at radius 1.2, so a heliocentric placement puts the Moon inside
+    // the planet. The parent-relative placement must clear the sum of both drawn radii.
+    const earthRadius = displayRadiusFor('earth', RADIUS.earth);
+    const moonRadius = displayRadiusFor('moon', RADIUS.moon);
+    const moonOffset = parentRelativeOffset('earth', RADIUS.earth, 3.844e8);
+    expect(moonOffset).toBeGreaterThan(earthRadius + moonRadius);
+    // And it agrees with the scale trajectories are drawn at, so a craft flying to the Moon
+    // and the Moon itself share one frame.
+    const trajectoryScale = bodyRelativeScale('earth', RADIUS.earth);
+    expect(moonOffset).toBeCloseTo(3.844e8 * trajectoryScale, 6);
   });
 
   it('puts a 400 km orbit just outside the drawn surface, not inside it', () => {

@@ -74,8 +74,15 @@ describe('bundled scenarios', () => {
 
   it('names the Earth-Moon scenario as focusing on a body rather than the Sun', () => {
     // A 60-unit camera aimed at the Sun from Earth would show neither Earth nor the Moon.
+    //
+    // The assertion used to demand 'focus'. Since the Moon is now drawn at its true 72.4-unit
+    // separation, a camera centred on *either* endpoint puts the other off the frame — so the
+    // requirement "show both bodies" is now met by 'pair' (the midpoint) and 'focus' would
+    // actually fail it. The test keeps checking the thing that matters: the camera is not on
+    // the Sun, and it is close enough to see a single system rather than the whole one.
     const pair = scenarioById('earth-moon');
-    expect(pair?.view.centeredOn).toBe('focus');
+    expect(pair?.view.centeredOn).not.toBe('sun');
+    expect(pair?.view.centeredOn).toBe('pair');
     expect(pair?.view.distanceUnits).toBeLessThan(200);
   });
 });
@@ -264,6 +271,18 @@ describe('validateScenario', () => {
       const bad = structuredClone(valid) as Record<string, unknown>;
       (bad['view'] as Record<string, unknown>)['centeredOn'] = centeredOn;
       expect(validateScenario(bad).ok).toBe(false);
+    }
+  });
+
+  it('accepts all three camera centres', () => {
+    // 'pair' was added for the Earth-Moon view, and it has to survive validation or the
+    // scenario catalogue fails to load at import time.
+    for (const centeredOn of ['sun', 'focus', 'pair']) {
+      const scenario = structuredClone(valid) as Record<string, unknown>;
+      (scenario['view'] as Record<string, unknown>)['centeredOn'] = centeredOn;
+      const result = validateScenario(scenario);
+      expect(result.ok, `${centeredOn} should be accepted`).toBe(true);
+      if (result.ok) expect(result.scenario.view.centeredOn).toBe(centeredOn);
     }
   });
 

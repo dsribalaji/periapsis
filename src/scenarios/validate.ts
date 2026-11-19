@@ -278,8 +278,8 @@ export function validateScenario(input: unknown): ValidationResult {
     const elevation = finiteNumber(rawView['elevationRad'], 'view.elevationRad', issues);
     const distance = finiteNumber(rawView['distanceUnits'], 'view.distanceUnits', issues);
     const centeredOn = rawView['centeredOn'];
-    if (centeredOn !== 'sun' && centeredOn !== 'focus') {
-      issues.push(issue('view.centeredOn', "must be 'sun' or 'focus'"));
+    if (centeredOn !== 'sun' && centeredOn !== 'focus' && centeredOn !== 'pair') {
+      issues.push(issue('view.centeredOn', "must be 'sun', 'focus' or 'pair'"));
     }
     if (elevation !== null && !(Math.abs(elevation) < Math.PI / 2)) {
       issues.push(
@@ -298,7 +298,7 @@ export function validateScenario(input: unknown): ValidationResult {
       azimuth !== null &&
       elevation !== null &&
       distance !== null &&
-      (centeredOn === 'sun' || centeredOn === 'focus') &&
+      (centeredOn === 'sun' || centeredOn === 'focus' || centeredOn === 'pair') &&
       Math.abs(elevation) < Math.PI / 2 &&
       distance > 0
     ) {

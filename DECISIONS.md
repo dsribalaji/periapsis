@@ -706,3 +706,117 @@ The honest cost is recorded too: the suite's wall-clock time varies by several s
 (measured 10.8 s to 15.9 s for the same 667 tests), which is exactly the variance that made a 5 s
 per-test budget unsafe. The timeout does not make a passing run slower; it stops a busy machine
 from being reported as a broken one.
+
+## D-043 - A satellite is drawn at its true ratio to its parent, because a moon bigger than its planet is a lie
+
+The Moon was drawn at 1.245 scene units next to an Earth drawn at 1.200, and placed 0.257
+units from Earth's centre - inside the planet. Both were user-visible and neither was caught,
+because no test asserted anything about placement.
+
+The cause was two incompatible scales meeting with nothing bridging them. Radius used cube-root
+compression (so the Moon came out 0.648 of Earth, against a true 0.273) and a hidden 1.6x
+"visibility" multiplier finished the job of making it larger than Earth. Position used the
+heliocentric linear mapping (0.257 units for a 384,400 km separation). Trajectories had already
+solved this problem with `bodyRelativeScale`; bodies had not.
+
+The rule now: a body whose parent is not the Sun is drawn at its true radius ratio to that
+parent, and placed at the parent's own exaggeration. A body with no parent, or whose parent is
+the Sun, keeps cube-root compression and the radial mapping.
+
+The second half matters as much as the first. Applying the parent-relative rule to *planets*
+was a real regression made while fixing this: it placed Earth 1,233 units from the Sun instead
+of 100, which is off-camera in every scenario, and the app still started cleanly with every
+existing test green. Placement is now pinned by `tests/placement.test.ts`, which asserts that
+the two rules disagree by more than 500 units for Earth so a test cannot pass under both.
+
+The costs, stated plainly:
+
+- The Moon's true-ratio radius is 0.327 units, under the 0.35 clickability floor, so it is
+  drawn 7% larger than truth. The old fudge cost 240%. The test asserts the bound rather than
+  claiming exactness.
+- A 384,400 km separation drawn at 72.4 units is not to scale with the 100-unit AU. It never
+  was - that is the compromise in §10.3, now extended from trajectories to the bodies
+  themselves. The alternative (honest 0.257 units) is a Moon inside the Earth.
+- The compressed whole-system layout cannot use this rule at all. A log-radius map has no room
+  for a 72-unit satellite offset, so there the Moon is drawn at three parent radii and reads as
+  a system. A third scale, applied only in that mode, and chosen because ordering is what that
+  view exists to show.
+
+What was deliberately not done: the clickability floor was not removed (it would cost every
+small body its hit target), and the Moon was not scaled up "just enough to see" as before.
+
+A side effect worth recording, because it was free: the free-return scenario drew its lunar
+flyby at 72.4 units while the Moon was drawn at 0.257, so the spacecraft flew past empty space.
+The two numbers now agree by construction rather than by coincidence.
+
+
+## D-044 - Surfaces are procedural, deterministic, and generated at runtime
+
+Every body was a flat-coloured sphere, which is why the view read as a diagram rather than a
+place. Textures are now generated per body: continents and cloud on Earth, maria and craters on
+the Moon, banded turbulence on the gas giants, granulation on the Sun.
+
+Three constraints decided the approach, and each rules out the obvious alternative:
+
+- **Offline.** SETUP.md requires no network at runtime, so no texture can be fetched. Generated
+  at load is the only option that survives that requirement.
+- **Deterministic.** D-002 forbids `Math.random` in anything whose output is observed, so the
+  same build must produce the same pixels. Textures are pure functions of coordinates and a
+  fixed seed (`noise.ts`), which also means a screenshot can be diffed against a later one.
+- **No licensing question.** A procedurally generated Jupiter is ours; a photograph of one is
+  not. D-004 already refused that trade for coastlines, and nothing about a planet texture
+  changes the reasoning.
+
+Noise is sampled in 3D on the unit sphere rather than 2D on (u, v). A 2D field has a seam at the
+longitude wrap - v = 0 and v = 1 are the same meridian but unrelated noise columns - and a
+visible vertical scar down every planet is a bug, not a style. Sampling a direction field is
+seamless by construction.
+
+The honest limitation: these are plausible planets, not real ones. Earth's continents are noise
+thresholded at sea level, not coasts. The existing caveat about approximate ephemerides covers
+position; this is scenery, and the same caveat applies to it.
+
+
+## D-045 - A camera aimed at one body cannot frame a pair, so the pair has its own centre
+
+Once the Moon was correctly drawn 72.4 units from Earth, `earth-moon` broke: the scenario centred
+on the Moon at 60 units, which put Earth off the edge, and centring on Earth would have done the
+same to the Moon. The old 60-unit framing had been tuned for a 0.257-unit separation - a number
+that no longer existed.
+
+`centeredOn` gained a third value, `pair`, which targets the midpoint and sizes the distance to
+the actual separation rather than reusing a single-body constant. This is a schema change, so it
+came with a validation test accepting all three values and a scenario test asserting `pair`.
+
+The point is small but worth stating: the framing was not "a bit tight", it was arithmetically
+impossible. At true separation there is no single-body target that holds both, and the fix had
+to be a new kind of target rather than a larger number.
+## D-046 - Procedural textures have a pixel budget, because boot time is a feature
+
+The first version of the procedural textures asked for 1024x1024 for the Sun and 512 for most
+planets: about 2.8 M pixels, 1.77 billion hash operations, and **14.7 s to first interaction**,
+measured. The window was up at 1.4 s and useless for thirteen more seconds.
+
+This was caught by an end-to-end test, not by looking at a screenshot. `remembers the chosen
+scenario across a reload` began timing out at 30 s: the app was not broken, it was still
+generating Jupiter. Five other e2e tests failed in the same run for the same reason, and the
+whole suite went from 4.7 minutes to 16.6. A visual feature had quietly made every interaction
+test slower, and the only reason it was visible is that the suite has a budget.
+
+The fix is a budget per body, chosen from how many pixels the body can actually cover rather
+than from a round number:
+
+| Body                    | Size  | Why                                                        |
+| ----------------------- | ----- | ---------------------------------------------------------- |
+| Earth, Sun              | 256   | The two the camera approaches. Earth fills the viewport in `leo-raise`; the Sun reaches ~460 px in the inner system. |
+| Jupiter/Saturn/Uranus/Neptune | 128 | ~30-60 px in the whole-system view, never more than a few hundred. |
+| Mercury/Venus/Moon/Mars | 96    | A few tens of pixels at most.                              |
+
+Measured after the change: all bodies together take ~760 ms, and first interaction is 1.5 s.
+The regression is 20x on the metric that matters, and the per-pixel quality is unchanged at the
+sizes those bodies are ever actually drawn.
+
+What was deliberately not done: the textures were not moved to a worker, made lazy per scenario,
+or cached. Each is a real option and each is more machinery than a 760 ms load justifies. If a
+body ever needs more than 256, the budget is the place to negotiate that, and the number to
+measure is time-to-interaction rather than the texture's own edge length.

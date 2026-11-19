@@ -62,8 +62,12 @@ const RAW: readonly Scenario[] = [
       radialMode: 'linear',
       azimuthRad: 1.9,
       elevationRad: 0.35,
+      // Overridden by the pair framing below, which sizes the distance to the actual
+      // separation; kept so the stored value is a sane fallback if the pair is unresolved.
       distanceUnits: 60,
-      centeredOn: 'focus',
+      // The Moon is drawn 72.4 units from Earth at its true size ratio. Centring on either one
+      // puts the other off the edge, so the camera aims at the midpoint and fits the pair.
+      centeredOn: 'pair',
     },
   },
   {

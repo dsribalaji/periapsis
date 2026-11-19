@@ -15,11 +15,16 @@ import { BODIES, type BodyId } from '../core/ephemeris/solarSystem.js';
 import { RADIUS } from '../core/constants.js';
 import {
   displayRadiusFor,
+  parentRelativeOffset,
   scalePosition,
   radialUnits,
   UNITS_PER_M,
   type RadialMode,
 } from './scale.js';
+import { generateClouds, generateRings, generateSurface, textureSize } from './bodyTextures.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { AU_M } from '../core/constants.js';
 
 export interface BodyVisual {
@@ -54,8 +59,8 @@ export interface SceneTrajectory {
 interface TrajectoryVisual {
   readonly centralBody: BodyId;
   readonly group: THREE.Group;
-  readonly future: THREE.LineSegments;
-  readonly flown: THREE.LineSegments;
+  readonly future: LineSegments2;
+  readonly flown: LineSegments2;
   readonly marker: THREE.Mesh;
   /** Held explicitly so disposal does not have to narrow `Object3D.material`'s union type. */
   readonly materials: readonly THREE.Material[];
@@ -67,7 +72,7 @@ export interface SceneCallbacks {
   readonly onSelect?: (id: BodyId) => void;
 }
 
-/** Flat colour per body, tuned for legibility against a dark background. */
+/** Flat colour per body, used for orbit rings, labels and the inspector swatch. */
 const BODY_COLORS: Record<BodyId, number> = {
   sun: 0xffdd55,
   mercury: 0x9a8f88,
@@ -80,6 +85,72 @@ const BODY_COLORS: Record<BodyId, number> = {
   uranus: 0x7fd4d8,
   neptune: 0x4b6fd6,
 };
+
+/** Rim-glow tint per body, chosen to match each atmosphere rather than its surface. */
+const ATMOSPHERE_COLORS: Partial<Record<BodyId, number>> = {
+  venus: 0xffe4a8,
+  mars: 0xff9a6a,
+  jupiter: 0xffd6a0,
+  saturn: 0xffe9b8,
+  uranus: 0xa8f0f4,
+  neptune: 0x6f9bff,
+  earth: 0x7fb4ff,
+};
+
+/**
+ * Surface spin in radians per second of *wall* time.
+ *
+ * Ordered by real rotation rate so Jupiter visibly outruns Venus, but all far too slow to be
+ * physically accurate — the point is legibility, not simulation. A body not listed turns at
+ * the default.
+ */
+const SPIN_RATES: Partial<Record<BodyId, number>> = {
+  sun: 0.012,
+  mercury: 0.004,
+  venus: 0.002,
+  earth: 0.05,
+  moon: 0.004,
+  mars: 0.048,
+  jupiter: 0.13,
+  saturn: 0.11,
+  uranus: 0.07,
+  neptune: 0.068,
+};
+
+/**
+ * A soft radial glow sprite: bright at the centre, fading to fully transparent at the edge.
+ *
+ * `BackSide` shells are the usual shortcut for a glow and they look wrong: a shell renders an
+ * unlit surface whose inner face is visible as a hard-edged disc with a *dark* rim against the
+ * background. A radial alpha ramp has no edge to see, so it reads as light rather than as a
+ * second sphere. Used for the Sun's corona and the atmospheric halos.
+ */
+function makeGlowTexture(): THREE.DataTexture {
+  const size = 128;
+  const data = new Uint8ClampedArray(size * size * 4);
+  const centre = (size - 1) / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x - centre) / centre;
+      const dy = (y - centre) / centre;
+      const r = Math.sqrt(dx * dx + dy * dy);
+      // Cubic falloff: solid in the middle, and gone before the square's corners.
+      const t = Math.max(0, 1 - r);
+      const alpha = t * t * t;
+      const offset = (y * size + x) * 4;
+      data[offset] = 255;
+      data[offset + 1] = 255;
+      data[offset + 2] = 255;
+      data[offset + 3] = alpha * 255;
+    }
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
 
 export class SolarSystemScene {
   readonly renderer: THREE.WebGLRenderer;
@@ -104,6 +175,10 @@ export class SolarSystemScene {
   private readonly trajectories = new Map<string, TrajectoryVisual>();
   /** Visible trajectory marker geometry, shared by every craft. */
   private readonly craftGeometry = new THREE.SphereGeometry(1, 12, 8);
+  /** Cloud shells, halos, the corona and Saturn's rings, keyed by body or role. */
+  private readonly atmospheres = new Map<string, THREE.Object3D>();
+  /** One shared radial glow texture, generated once and reused by every halo. */
+  private readonly glowTexture = makeGlowTexture();
   /** Pointer-drag state, or null when not dragging. */
   private drag: { lastX: number; lastY: number; moved: number } | null = null;
   /** Set after a drag so the trailing click does not reselect. */
@@ -149,22 +224,96 @@ export class SolarSystemScene {
   }
 
   private buildBodies(): void {
-    const sphereGeometry = new THREE.SphereGeometry(1, 32, 24);
+    const sphereGeometry = new THREE.SphereGeometry(1, 64, 48);
 
     for (const [id, def] of Object.entries(BODIES) as [BodyId, (typeof BODIES)[BodyId]][]) {
       const radiusUnits = displayRadiusFor(id, RADIUS[id]);
+      const size = textureSize(id, radiusUnits);
+      const map = generateSurface(id, size);
+
       const material = new THREE.MeshStandardMaterial({
-        color: BODY_COLORS[id],
-        roughness: 0.85,
+        color: 0xffffff,
+        map,
+        // A flat colour multiplied over the map would dull it; the texture carries the colour.
+        roughness: id === 'sun' ? 1 : 0.92,
         metalness: 0.0,
         // The Sun supplies its own light.
-        emissive: id === 'sun' ? 0xffcc44 : 0x000000,
-        emissiveIntensity: id === 'sun' ? 1.0 : 0,
+        emissive: id === 'sun' ? 0xfff0d0 : 0x000000,
+        emissiveMap: id === 'sun' ? map : null,
+        emissiveIntensity: id === 'sun' ? 1.35 : 0,
       });
       const mesh = new THREE.Mesh(sphereGeometry, material);
       mesh.scale.setScalar(radiusUnits);
       mesh.userData.bodyId = id;
       this.scene.add(mesh);
+
+      // Earth gets a separate, slightly larger cloud shell that rotates a little faster.
+      if (id === 'earth') {
+        const cloudMap = generateClouds(size);
+        const cloudMaterial = new THREE.MeshStandardMaterial({
+          map: cloudMap,
+          transparent: true,
+          opacity: 0.85,
+          depthWrite: false,
+          roughness: 1,
+        });
+        const clouds = new THREE.Mesh(sphereGeometry, cloudMaterial);
+        clouds.scale.setScalar(radiusUnits * 1.012);
+        clouds.userData.cloudShell = true;
+        this.atmospheres.set(id, clouds);
+        this.scene.add(clouds);
+      } else if (id === 'venus' || id === 'mars' || id === 'jupiter' || id === 'saturn' || id === 'uranus' || id === 'neptune') {
+        // A soft additive halo, drawn as a billboard sprite rather than a sphere shell. The
+        // shell version showed a hard dark rim that made every planet look like it had a hole
+        // punched around it; a radial alpha ramp has no edge.
+        const glowMaterial = new THREE.SpriteMaterial({
+          map: this.glowTexture,
+          color: ATMOSPHERE_COLORS[id],
+          transparent: true,
+          opacity: 0.35,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        });
+        const glow = new THREE.Sprite(glowMaterial);
+        glow.scale.setScalar(radiusUnits * 3.2);
+        this.atmospheres.set(id, glow);
+        this.scene.add(glow);
+      }
+
+      if (id === 'sun') {
+        // A corona: a large radial ramp, so the disc bleeds light into space instead of
+        // sitting inside a visible darker sphere.
+        const coronaMaterial = new THREE.SpriteMaterial({
+          map: this.glowTexture,
+          color: 0xffe0b0,
+          transparent: true,
+          opacity: 0.55,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        });
+        const corona = new THREE.Sprite(coronaMaterial);
+        corona.scale.setScalar(radiusUnits * 3.4);
+        this.atmospheres.set('sun', corona);
+        this.scene.add(corona);
+      }
+
+      if (id === 'saturn') {
+        const ringTexture = generateRings(512);
+        const ringGeometry = new THREE.RingGeometry(radiusUnits * 1.4, radiusUnits * 2.3, 128, 1);
+        const ringMaterial = new THREE.MeshBasicMaterial({
+          map: ringTexture,
+          transparent: true,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          opacity: 0.9,
+        });
+        const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+        // Lying in the planet's equatorial plane, which in this model is the ecliptic.
+        ring.rotation.x = -Math.PI / 2;
+        ring.userData.ringFor = id;
+        this.atmospheres.set('saturn-ring', ring);
+        this.scene.add(ring);
+      }
 
       const label = this.makeLabel(def.name);
       this.scene.add(label);
@@ -176,16 +325,16 @@ export class SolarSystemScene {
   private makeLabel(text: string): THREE.Sprite {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    canvas.width = 256;
-    canvas.height = 64;
+    canvas.width = 512;
+    canvas.height = 128;
     if (ctx) {
-      ctx.font = 'bold 30px system-ui, sans-serif';
+      ctx.font = 'bold 56px system-ui, sans-serif';
       ctx.fillStyle = 'rgba(220,230,245,0.92)';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       // NOTE: fillText only. Imported or user-supplied strings are never interpolated into
       // markup anywhere in this app, and the canvas API is not an injection surface.
-      ctx.fillText(text, 128, 32);
+      ctx.fillText(text, 256, 64);
     }
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -194,9 +343,13 @@ export class SolarSystemScene {
       transparent: true,
       depthWrite: false,
       depthTest: false,
+      // Constant apparent size. A world-sized label is enormous when the camera closes in and
+      // unreadable when it pulls back, which is what made "Earth" dwarf the planet it names.
+      sizeAttenuation: false,
     });
     const sprite = new THREE.Sprite(material);
-    sprite.scale.set(14, 3.5, 1);
+    // In the non-attenuated path the scale is in screen-height fractions.
+    sprite.scale.set(0.1, 0.025, 1);
     return sprite;
   }
 
@@ -281,13 +434,85 @@ export class SolarSystemScene {
     for (const ring of this.orbitRings) ring.visible = visible;
   }
 
-  /** Positions every body from physics-frame metres. */
+  /**
+   * Positions every body from physics-frame metres.
+   *
+   * Heliocentric bodies (the Sun and the planets) are placed by the radial mapping, which is
+   * honest about the layout. A satellite is placed **relative to its parent's drawn position**
+   * at the parent's own exaggeration (`parentRelativeOffset`), for the reason stated there: at
+   * the linear scale the Moon is 0.257 units from Earth while Earth is drawn at radius 1.2, so
+   * a heliocentric placement buries it inside the planet and disagrees with every trajectory,
+   * which is already drawn at the body-relative scale.
+   *
+   * The offset is derived from the *physics* difference between the body and its parent, so the
+   * Moon still moves correctly around the Earth — but at a scale the camera can see. In the
+   * compressed whole-system layout the separation is a fixed few parent radii instead, because
+   * a logarithmic radius map has no room for a true satellite distance.
+   */
   updatePositions(positions: ReadonlyMap<BodyId, { x: number; y: number; z: number }>): void {
-    for (const [id, visual] of this.bodies) {
+    // Parents first: a satellite's scene position depends on its parent's.
+    const order: BodyId[] = [];
+    const visit = (id: BodyId): void => {
+      const parent = BODIES[id].parent;
+      if (parent) visit(parent);
+      if (!order.includes(id)) order.push(id);
+    };
+    for (const id of this.bodies.keys()) visit(id);
+
+    for (const id of order) {
+      const visual = this.bodies.get(id);
       const p = positions.get(id);
-      if (!p) continue;
-      const [x, y, z] = scalePosition(p.x, p.y, p.z, this.radialMode);
+      if (!visual || !p) continue;
+
+      const def = BODIES[id];
+      const parent = def.parent;
+      // The parent-relative rule is for *satellites only*. A planet's parent is the Sun, and
+      // applying `parentRelativeOffset` to it would place Earth at 1233 units from the Sun
+      // (the Sun's 5.7-unit drawn radius divided by its true one, times a real AU) instead of
+      // the 100 units the linear layout gives — pushing every planet off the camera. Planets
+      // stay on the radial mapping; see `displayRadiusFor` for the matching radius rule.
+      const isSatellite = parent !== null && parent !== 'sun';
+
+      let x: number;
+      let y: number;
+      let z: number;
+      if (isSatellite && parent && positions.has(parent)) {
+        // Offset from the parent in physics metres, then converted at the parent's scale.
+        const pp = positions.get(parent)!;
+        const offsetM = Math.hypot(p.x - pp.x, p.y - pp.y, p.z - pp.z);
+        const parentScene = this.scenePositions.get(parent) ?? new THREE.Vector3();
+        if (offsetM > 0) {
+          const drawn =
+            this.radialMode === 'linear'
+              ? // Linear layout: the true separation at the parent's own exaggeration, which
+                // is what makes the Moon agree with the trajectory flying to it.
+                parentRelativeOffset(parent, BODIES[parent].radius, offsetM)
+              : // Compressed layout: distances are logarithmic, so a satellite's true 72-unit
+                // separation would fling it onto its own ring far outside its planet. The map's
+                // job is body *ordering*, so a satellite is drawn hugging its parent, at a few
+                // parent radii, and reads as a system rather than a stray dot.
+                displayRadiusFor(parent, BODIES[parent].radius) * 3;
+          const k = drawn / offsetM;
+          const sx = (p.x - pp.x) * k;
+          const sy = (p.z - pp.z) * k;
+          const sz = -(p.y - pp.y) * k;
+          x = parentScene.x + sx;
+          y = parentScene.y + sy;
+          z = parentScene.z + sz;
+        } else {
+          x = parentScene.x;
+          y = parentScene.y;
+          z = parentScene.z;
+        }
+      } else {
+        [x, y, z] = scalePosition(p.x, p.y, p.z, this.radialMode);
+      }
+
       visual.mesh.position.set(x, y, z);
+
+      // Cloud shells, glows and rings follow their body exactly.
+      this.atmospheres.get(id)?.position.set(x, y, z);
+      if (id === 'saturn') this.atmospheres.get('saturn-ring')?.position.set(x, y, z);
 
       // Labels sit just above each body, offset in scene units scaled to the body size.
       const labelOffset = visual.radiusUnits + 2.2;
@@ -330,29 +555,48 @@ export class SolarSystemScene {
 
   private buildTrajectory(t: SceneTrajectory): TrajectoryVisual {
     const group = new THREE.Group();
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(t.positions, 3));
 
-    // Two objects sharing one geometry, split by drawRange: the flown part is drawn dimmer
-    // so the craft's current position reads at a glance, and the split costs no extra vertex
-    // data. Both must be transparent with depthWrite off, or the line hides the planets.
-    const futureMaterial = new THREE.LineBasicMaterial({
+    // A widened line, not `THREE.Line`. WebGL ignores `linewidth` on a plain line, so a
+    // trajectory was always exactly one pixel however close the camera got — the single
+    // biggest reason the view read as a wireframe diagram. `LineSegments2` draws real
+    // quads and its width is in screen pixels, which stays legible at every zoom.
+    //
+    // It is built from the same flat position array: `setPositions` takes consecutive pairs,
+    // which is what a `LineSegments` arrangement already is.
+    const makeGeometry = (): LineSegmentsGeometry => {
+      const g = new LineSegmentsGeometry();
+      g.setPositions(t.positions as unknown as number[]);
+      return g;
+    };
+
+    const futureMaterial = new LineMaterial({
       color: t.color,
+      linewidth: 2.2,
       transparent: true,
       opacity: 0.95,
       depthWrite: false,
+      // Needed because the trajectory is an overlay: a line passing behind a planet must still
+      // be visible, or the path reads as broken rather than occluded.
+      depthTest: false,
     });
-    const flownMaterial = new THREE.LineBasicMaterial({
-      color: new THREE.Color(t.color).multiplyScalar(0.42),
+    const flownMaterial = new LineMaterial({
+      color: new THREE.Color(t.color).multiplyScalar(0.42).getHex(),
+      linewidth: 2.2,
       transparent: true,
       opacity: 0.95,
       depthWrite: false,
+      depthTest: false,
     });
+    this.applyLineResolution(futureMaterial);
+    this.applyLineResolution(flownMaterial);
 
-    const future = new THREE.LineSegments(geometry, futureMaterial);
-    const flown = new THREE.LineSegments(geometry, flownMaterial);
-    // A trajectory is an overlay, not scenery: without this a line passing behind a planet
-    // disappears, which reads as a gap rather than as occlusion.
+    // Two objects over two geometries, each holding the same positions and a different
+    // `instanceCount` (a segment count): the flown part is dimmer so the craft's position
+    // reads at a glance. They cannot share one geometry — `instanceCount` lives on the
+    // geometry, so a shared one would let one half overwrite the other's split. The old
+    // `drawRange` version had exactly that latent bug.
+    const future = new LineSegments2(makeGeometry(), futureMaterial);
+    const flown = new LineSegments2(makeGeometry(), flownMaterial);
     future.renderOrder = 2;
     flown.renderOrder = 2;
     group.add(flown);
@@ -360,9 +604,10 @@ export class SolarSystemScene {
 
     const markerMaterial = new THREE.MeshBasicMaterial({ color: t.color });
     const marker = new THREE.Mesh(this.craftGeometry, markerMaterial);
-    // Fixed screen size for the craft: it is a symbol, not a body, and a 5 m satellite
-    // scaled honestly would be invisible.
-    marker.scale.setScalar(0.9);
+    // A craft is a symbol, not a body: a 5 m satellite scaled honestly is invisible, and a
+    // fixed world size is either a dot at system zoom or a planet-sized blob up close — which
+    // is exactly what it was. It is rescaled every frame from the camera distance instead
+    // (`updateMarkerScales`), so it holds a constant apparent size.
     marker.renderOrder = 3;
     marker.visible = false;
     group.add(marker);
@@ -380,13 +625,24 @@ export class SolarSystemScene {
     return visual;
   }
 
-  /** Splits the shared geometry at a segment boundary: `drawRange` counts vertices. */
+  /**
+   * Splits the shared geometry at a segment boundary.
+   *
+   * `LineSegments2` draws instanced quads, so the split is an `instanceCount` — one per
+   * segment — rather than the vertex `drawRange` a plain `LineSegments` would need. Storing
+   * both counts means a resize or a re-split can restore them without re-reading geometry.
+   */
   private applyFlownCount(visual: TrajectoryVisual, flownSegments: number): void {
-    const attribute = visual.future.geometry.getAttribute('position');
-    const totalVertices = attribute.count;
-    const flownVertices = Math.min(totalVertices, Math.max(0, flownSegments) * 2);
-    visual.flown.geometry.setDrawRange(0, flownVertices);
-    visual.future.geometry.setDrawRange(flownVertices, totalVertices - flownVertices);
+    const total = visual.future.geometry.instanceCount;
+    const flown = Math.min(total, Math.max(0, Math.floor(flownSegments)));
+    visual.flown.geometry.instanceCount = flown;
+    visual.future.geometry.instanceCount = total - flown;
+  }
+
+  /** Keeps a line material's pixel width correct for the current drawing-buffer size. */
+  private applyLineResolution(material: LineMaterial): void {
+    const size = this.renderer.getSize(new THREE.Vector2());
+    material.resolution.set(size.x, size.y);
   }
 
   /** Updates only the flown/future split, without rebuilding geometry. */
@@ -427,9 +683,10 @@ export class SolarSystemScene {
 
   private disposeTrajectory(visual: TrajectoryVisual): void {
     this.scene.remove(visual.group);
-    // Both line objects share one geometry, so it is disposed once. The marker geometry is
-    // shared between crafts and outlives every trajectory.
+    // Each line object owns its own geometry now (see `buildTrajectory`), so both are
+    // disposed. The marker geometry is shared between crafts and outlives every trajectory.
     visual.future.geometry.dispose();
+    visual.flown.geometry.dispose();
     for (const material of visual.materials) material.dispose();
   }
 
@@ -439,6 +696,45 @@ export class SolarSystemScene {
     this.radialMode = mode;
     // Ring radii are the mapped semi-major axes, so they must be rebuilt.
     this.buildOrbitRings();
+  }
+
+  /**
+   * Rotates every body's surface by wall time. Called once per rendered frame.
+   *
+   * Bodies rotating is the single cheapest thing that stops the view reading as a static
+   * diagram. The rates are illustrative rather than physical — a real 24-hour rotation is
+   * invisible at warp 1 and a blur at warp 1e7 — so each body turns slowly enough to see its
+   * surface move, and the *relative* speeds keep the ranking right (Jupiter fast, Venus slow).
+   * Using wall time rather than simulation time is deliberate: a paused planet stays alive.
+   */
+  private updateSpin(wallSeconds: number): void {
+    for (const [id, visual] of this.bodies) {
+      // Radians per second of wall time. Slow enough to read, fast enough to notice.
+      const rate = SPIN_RATES[id] ?? 0.02;
+      visual.mesh.rotation.y = wallSeconds * rate;
+      const clouds = id === 'earth' ? this.atmospheres.get('earth') : undefined;
+      if (clouds) clouds.rotation.y = wallSeconds * rate * 1.18;
+    }
+  }
+
+  /**
+   * Holds every craft marker at a constant apparent size.
+   *
+   * The marker is a symbol for "the spacecraft is here", so what matters is that it is always
+   * legible and never mistaken for a body. Scaling it per frame by the camera distance is the
+   * standard billboard trick; a fixed world size is either invisible or, as it was, a blob
+   * bigger than the Earth it orbits.
+   */
+  private updateMarkerScales(): void {
+    // A marker about 1.8% of the viewport height, expressed as a world diameter and halved
+    // back to the sphere's radius. Getting this wrong by the radius/diameter factor is what
+    // left a blob half the size of Earth: the old code multiplied the *radius* by the
+    // viewport fraction, drawing a marker 2x its intended apparent size.
+    const worldPerUnit = this.distance * Math.tan((this.camera.fov * Math.PI) / 360) * 2;
+    const scale = (worldPerUnit * 0.018) / 2;
+    for (const visual of this.trajectories.values()) {
+      visual.marker.scale.setScalar(scale);
+    }
   }
 
   /**
@@ -465,6 +761,33 @@ export class SolarSystemScene {
     const pos = this.scenePositions.get(id);
     if (!pos) return;
     this.orbitTarget.copy(pos);
+    this.updateCamera();
+  }
+
+  /**
+   * Points the camera at the midpoint between a body and its parent.
+   *
+   * Necessary for the Earth-Moon pair. They are drawn 72.4 units apart, so a camera centred on
+   * Earth puts the Moon off the edge and one centred on the Moon puts Earth off the edge. The
+   * midpoint is the only target that keeps both in frame, and the distance is widened to fit
+   * the separation rather than reusing a single-body value tuned for one of them.
+   */
+  centerOnPair(id: BodyId): void {
+    const pos = this.scenePositions.get(id);
+    const parent = BODIES[id].parent;
+    if (!pos || !parent) return;
+    const parentPos = this.scenePositions.get(parent);
+    if (!parentPos) return;
+
+    this.orbitTarget.copy(pos).add(parentPos).multiplyScalar(0.5);
+    // Fit the separation: the pair spans `sep` units, and a 45-degree vertical FOV holds about
+    // 0.83 scene units of width per unit of distance. 1.6x margin keeps both discs clear of
+    // the edges, and the floor stops a tight pair from putting the camera inside a body.
+    const sep = pos.distanceTo(parentPos);
+    const childRadius = this.bodies.get(id)?.radiusUnits ?? 0;
+    const parentRadius = this.bodies.get(parent)?.radiusUnits ?? 0;
+    const span = Math.max(sep + childRadius + parentRadius, 1);
+    this.distance = clamp(span * 1.6, 0.5, 4000);
     this.updateCamera();
   }
 
@@ -625,11 +948,20 @@ export class SolarSystemScene {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    // Line widths are specified in pixels, which the shader converts using the drawing
+    // buffer's size. Without this the line is drawn at the wrong width after any resize.
+    for (const visual of this.trajectories.values()) {
+      for (const material of visual.materials) {
+        if (material instanceof LineMaterial) this.applyLineResolution(material);
+      }
+    }
   };
 
   /** Renders one frame. The caller owns timing; this only draws. */
   render(): void {
     if (this.disposed) return;
+    this.updateSpin(performance.now() / 1000);
+    this.updateMarkerScales();
     this.renderer.render(this.scene, this.camera);
   }
 
