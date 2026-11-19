@@ -72,13 +72,20 @@ stated in the module header and each is covered by a test.
 A scenario is a starting point: epoch, start warp, focus body, camera framing, and optionally a
 mission. It carries no orbital state, so it can never contradict the ephemeris. `validate.ts`
 checks structure and returns a list of `{path, message}` issues rather than throwing, which is
-what an import error report needs. `catalogue.ts` holds the six bundled scenarios and validates
+what an import error report needs. `catalogue.ts` holds the seven bundled scenarios and validates
 them at module load, so a malformed built-in fails immediately instead of half-loading the app.
 
 The mission field follows the same principle one level down: a spacecraft is an orbit
 _parameterisation_ (central body, altitude, inclination, phase) resolved by `craftFromSpec`, not a
 position/velocity pair. "550 km at 53°" is a claim a reader can check; `r = (6771000, 0, 0)` is
 not, and it can silently contradict the scenario that contains it.
+
+The same rule governs the maneuvers. `lunar-free-return` writes its translunar burn as `a: 3115`
+in the `local` frame, so the prograde direction comes from `circularOrbitFrame` like every other
+node; hand-computing inertial components would be a second definition of the parking triad, which
+is what D-020 exists to prevent. Its non-obvious numbers - the 5° inclination, the 255° phase, the
+epoch - are all measured, and the measurements are in PHYSICS.md §14 next to the reasoning that
+produced them rather than in the scenario file as a comment nobody re-checks.
 
 ### `src/render` — Three.js
 

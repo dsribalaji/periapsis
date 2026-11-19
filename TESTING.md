@@ -69,6 +69,7 @@ clock on screen advances" is an e2e test. The overlap is deliberately small.
 | Wall-clock assertions on a laptop | The CPU idles at 1.5 GHz of 2.2 GHz on battery, so a timing budget fails for reasons unrelated to the code | Compare measurements taken in the same clock state, or record both    |
 | A wide numeric tolerance          | ±1,000 km around an altitude passed a readout that was wrong by 343,000 km                                 | Assert a readout against another readout, not against a constant      |
 | `expect()` per pixel              | A 259,200-pixel opacity loop took 1.8 s alone and hit the 5 s timeout under 24 parallel workers            | Sweep with a stride, and assert the two ends explicitly               |
+| A number copied into prose        | A return altitude of "337 km" survived a re-read; 7,045 − 6,371 = 686 is only checked when computed        | Every number in a doc comes from a printed measurement, not a draft   |
 
 A fourth rule, learned the hard way in M5.3: **a test that hovers must also prove the hover
 survives.** Replacing a short hint with a tall list reflows the sidebar, which moves the plot
@@ -106,6 +107,19 @@ turned a "why doesn't this match" into a bounded, explanatory number — and, ju
 made the _other_ possible cause (a frame defect) refutable by four orders of magnitude. A test that
 had simply grown a 5 km tolerance would have accepted the D-032 class of bug without noticing.
 
+An eighth, from M6.3: **assert the mechanism, not the symptom, and check that the negative case
+fails for the right reason.** The free-return scenario's claim is that the Moon turns the craft
+around, so the test disables the Moon and requires no return. The first version also asserted that
+the no-Moon path never comes near the Moon — and failed at 4,672 km, because the burn is aimed at
+the Moon's position whatever gravity is acting. The scenario was fine; the test was asserting
+geometry that could not separate the two cases. The lesson is not "loosen the bound" but "pick the
+observable that only the mechanism can produce": here, the return distance, 43.7x larger without
+the Moon. A related habit came out of the same session — every number that went into PHYSICS.md §14
+was measured in one script that printed the whole table at once, because the first draft of the
+prose carried an apogee and a return altitude that were arithmetically wrong (a 337 km return that
+is really 686 km, 7,045 minus 6,371). Prose is not compiled, so a number in it needs to come from
+an output buffer, not from a previous draft.
+
 ## Coverage
 
 `vitest` reports coverage over `src/core`, `src/sim` and `src/scenarios` only. `src/render` and
@@ -138,6 +152,19 @@ recomputes goes stale silently — the scenario would still load and still draw,
 longer reaches where its own description says. `e2e/shell.spec.ts` then asserts the scenarios in
 the running app, because "the data is right" and "the app does the right thing with it" are
 different claims.
+
+The free-return scenario is the strongest case of this, because it is the one scenario whose
+correctness is a _flight_ rather than a number. Its eight unit tests propagate the scenario's own
+spec and check what came back: the burn is re-derived from vis-viva to confirm the resulting orbit
+reaches the Moon, the flyby and return distances are asserted against the propagated path, and the
+plan's 9-day horizon is checked to contain the 6.36-day return. The most important one is the
+mutation: with the Moon removed from the body list the craft must _not_ come home. Writing it
+exposed a trap worth recording. The obvious assertion - "without the Moon it stays far from the
+Moon" - is false, because the burn is aimed at where the Moon will be: the unperturbed ellipse
+closes to 4,672 km of lunar altitude against 2,694 km with the Moon present. Distance cannot
+distinguish the cases; only the return can, and the test now asserts a 43.7x ratio on return
+distance. A test that had asserted the intuitive thing would have passed for the wrong reason on
+the day it was written and failed confusingly later.
 
 Note on screenshots: the agent building this cannot view images, so a screenshot is never
 evidence in itself. `scripts/inspect-screenshot.mjs <file>` decodes one and reports its

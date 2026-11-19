@@ -21,10 +21,10 @@ Last full run: `npm run verify` (2026-11-19) and `npx playwright test`.
 | --------------------------- | -------------------------------------------------------- |
 | Typecheck (`tsc --noEmit`)  | PASS                                                     |
 | Lint (`eslint .`)           | PASS, 0 problems                                         |
-| Unit tests (`vitest run`)   | PASS, 595 tests / 24 files                               |
-| Build (`vite build`)        | PASS, 851.82 kB JS (232.47 kB gzip)                      |
+| Unit tests (`vitest run`)   | PASS, 602 tests / 24 files                               |
+| Build (`vite build`)        | PASS, 852.49 kB JS (232.62 kB gzip)                      |
 | `npm run verify`            | PASS (typecheck + lint + tests + build)                  |
-| E2E (`npx playwright test`) | PASS, 41 tests against the real app in headless Chromium |
+| E2E (`npx playwright test`) | PASS, 47 tests against the real app in headless Chromium |
 
 All six were run, not inferred. The e2e suite starts its own dev server and drives the real
 page: it asserts React mounts, a WebGL canvas is created and sized, the clock advances while
@@ -73,6 +73,22 @@ for a scenario with no spacecraft, and the partial-coverage note appears for a 9
 337.3° span does not close the map. The panel's projection and its two line-break rules are
 asserted at the unit level (34 tests), where they are arithmetic rather than pixels.
 
+The free-return scenario is covered from both directions as well, six e2e tests and eight unit
+tests. End to end: it loads with one translunar node and no second, the 3,115.0 m/s of a 3,300 m/s
+budget is already spent on load because the burn is at T+0, the plan's apoapsis is 373,475 km and
+its periapsis 6,671 km (one propagation answering both questions), it is not flagged as aliased
+despite a 9-day horizon, the ground track draws and the altitude climbs when the clock resumes,
+and the panel disappears on a scenario with no spacecraft. At the unit level the burn is re-derived
+from vis-viva rather than trusted, and the trajectory itself is propagated: 2,694 km of lunar
+altitude at T+3.27 d, 686 km over the Earth at T+6.36 d.
+
+One test had to be rewritten and the reason is the heart of the scenario. Removing the Moon does
+not stop the craft passing near the Moon's position — the burn is aimed there, so the unperturbed
+ellipse closes to 4,672 km of lunar altitude against 2,694 km with the Moon present. Distance
+cannot separate the two cases. The return can: without the Moon the burn is a closed ellipse with
+a 10.4-day period, and at the end of the 9-day horizon the craft is still 308,380 km out, against
+7,045 km at 6.36 days. The test asserts that ratio (43.7x measured, bounded at 20x).
+
 Note on the browser: the paired interactive browser extension was not connected, so
 verification ran through Playwright's Chromium with software GL
 (`--use-gl=swiftshader`). That is a real browser executing the real bundle, but it is not
@@ -94,7 +110,7 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/clock.test.ts`           | 21    | warp, step budget, frame-rate independence, formatting             |
 | `tests/simulation.test.ts`      | 15    | epoch/JD handling, body positions, determinism, reset              |
 | `tests/scale.test.ts`           | 21    | scene scale, radius compression, radial mapping                    |
-| `tests/scenario.test.ts`        | 39    | scenario schema, validation errors, bundled catalogue              |
+| `tests/scenario.test.ts`        | 46    | scenario schema, validation, catalogue, free-return physics        |
 | `tests/maneuver.test.ts`        | 23    | node frames, magnitudes, ordering, Δv totals                       |
 | `tests/trajectory.test.ts`      | 25    | propagation modes, burns in-frame, Δv accounting, Hohmann arc      |
 | `tests/craft.test.ts`           | 18    | circular orbit states, frames, periods, speeds, clearance          |
@@ -106,7 +122,7 @@ the same as a check on a GPU-backed desktop browser.
 | `tests/transferView.test.ts`    | 42    | cell -> node, timing shift, warnings, horizon extension            |
 | `tests/groundTrack.test.ts`     | 20    | obliquity, GMST rotation, geocentric lat/lon, antimeridian         |
 | `tests/groundTrackView.test.ts` | 34    | projection, antimeridian split, gaps, marker, image, datum check   |
-| `e2e/shell.spec.ts`             | 41    | boot, WebGL, clock, picking, drag, zoom, mission, plot, map        |
+| `e2e/shell.spec.ts`             | 47    | boot, WebGL, clock, picking, drag, zoom, mission, plot, map, Moon  |
 
 ## Module inventory
 
@@ -166,20 +182,20 @@ the same as a check on a GPU-backed desktop browser.
 
 `src/scenarios` — schema, validation and the bundled catalogue:
 
-| Module         | Status                                                     |
-| -------------- | ---------------------------------------------------------- |
-| `types.ts`     | complete: versioned `Scenario` / `ScenarioView` types      |
-| `validate.ts`  | complete, tested: structural validation with field paths   |
-| `catalogue.ts` | complete, tested: six bundled scenarios, validated on load |
+| Module         | Status                                                       |
+| -------------- | ------------------------------------------------------------ |
+| `types.ts`     | complete: versioned `Scenario` / `ScenarioView` types        |
+| `validate.ts`  | complete, tested: structural validation with field paths     |
+| `catalogue.ts` | complete, tested: seven bundled scenarios, validated on load |
 
 Entry points: `index.html`, `src/main.tsx`, `e2e/shell.spec.ts`, `playwright.config.ts`,
 `scripts/inspect-screenshot.mjs` (decodes a screenshot and reports measurable facts; the agent
 cannot view images, so a screenshot is only ever "measured", never "looked at").
 
 Not yet written: the maneuver-node _editor_ (nodes are shown and marked applied, and one can now
-be created from a porkchop cell, but there is no edit/delete control yet — `leo-raise` carries its
-node as scenario data), arrival/capture burns, the free-return scenario (M6.3), scenario
-persistence and file import/export.
+be created from a porkchop cell, but there is no edit/delete control yet - `leo-raise` carries its
+node as scenario data), arrival/capture burns, a runtime free-return _solver_ (the scenario replays
+a measured trajectory rather than searching for one), scenario persistence and file import/export.
 
 ## Milestones
 
@@ -191,7 +207,7 @@ persistence and file import/export.
 | M3 3D shell               | done (M3.1-M3.6)                                                 |
 | M4 spacecraft + maneuvers | model and visual layers done; node editing UI outstanding (M4.2) |
 | M5 mission planning       | done (M5.1–M5.5)                                                 |
-| M6 ground track + Moon    | M6.1 and M6.2 done (physics + panel); M6.3 outstanding           |
+| M6 ground track + Moon    | done (M6.1 physics, M6.2 panel, M6.3 free return)                |
 | M7 scenarios + polish     | not started                                                      |
 | M8 hardening              | not started                                                      |
 
@@ -280,3 +296,12 @@ persistence and file import/export.
 - **The ground track is drawn from the plan, not the clock**, so it shows the whole horizon's path
   at once with a marker for the current point. It does not accumulate: switching scenarios replaces
   it, and it never draws where the craft has actually been beyond the flown prefix in the 3D view.
+- **The free-return scenario is epoch-locked.** Its single 3,115 m/s burn works from the Moon's
+  phase at `2027-04-07T12:00:00Z` and from nowhere else: move the epoch a day and the encounter is
+  gone. That is the physics of a free return rather than a defect, but it means the scenario cannot
+  be re-timed by the user, and the app has no free-return solver to re-time it (PHYSICS.md §14.5).
+- **Impact detection covers the central body only.** `propagateTrajectory` compares the path
+  against the central body's radius, so an Earth impact is flagged and a _lunar_ impact is not —
+  at 3,110 m/s the free-return craft passes 1,227 km below the Moon's surface and the app shows a
+  trajectory through the Moon rather than a warning. Found while writing PHYSICS.md §14.4, recorded
+  there and here, not fixed in M6.3.

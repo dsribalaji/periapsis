@@ -3,7 +3,7 @@
 An offline orbital mechanics sandbox and mission designer. Runs entirely in the browser,
 needs no account, no server and no network at runtime.
 
-**Status: in development.** The physics core is complete and tested (595 unit tests); the 3D
+**Status: in development.** The physics core is complete and tested (602 unit tests); the 3D
 application shell runs with scenario loading, mouse camera control, time controls and a working
 mission layer — a spacecraft flies a planned path drawn in the view, with maneuver nodes and a
 delta-v budget. A porkchop plot finds interplanetary launch windows by solving Lambert's problem
@@ -15,7 +15,7 @@ backlog.
 
 ## What works today
 
-The app: a 3D solar-system view with a draggable, zoomable camera, six bundled scenarios, a
+The app: a 3D solar-system view with a draggable, zoomable camera, seven bundled scenarios, a
 warp clock from 1× to 10⁷×, an inspector, a mission panel showing a craft's trajectory, altitude
 and delta-v budget as the clock advances, a porkchop plot with a hover readout, and a 2D
 ground-track map with a live sub-satellite marker. Click a cell
@@ -24,10 +24,12 @@ burn out of its parking orbit, with the Oberth effect, the plane-change penalty 
 forces, and the timing shift onto the cheapest point of the orbit all reported rather than
 assumed.
 
-The six scenarios are two system views, a 550 km orbit with a raise node, a full GTO-to-GEO
+The seven scenarios are two system views, a 550 km orbit with a raise node, a full GTO-to-GEO
 transfer whose apogee burn combines its plane change with its circularisation (4,258 m/s, saving
-1,151 m/s against doing the two separately), and a 300 km, 51.6-degree park with the 2028 Mars
-window one porkchop click away.
+1,151 m/s against doing the two separately), a 300 km, 51.6-degree park with the 2028 Mars window
+one porkchop click away, and a lunar free return: one 3,115 m/s burn from a 300 km park that goes
+around the far side of the Moon at 2,694 km altitude and comes back to Earth at 686 km with no
+second burn.
 
 The pure physics core, as a library under `src/core`:
 
@@ -46,6 +48,8 @@ The pure physics core, as a library under `src/core`:
   crossover, plane-change penalty
 - Ground track: heliocentric → Earth-relative → equatorial (obliquity) → Earth-fixed (GMST), with
   geocentric latitude and an antimeridian break per segment
+- Restricted N-body propagation to the Moon and back: the free-return trajectory is integrated
+  through the lunar flyby rather than patched together from conics
 
 The `src/sim` layer on top of it: the warp clock, the simulation state, impulsive maneuvers in
 the local orbital frame, and trajectory propagation with per-burn segments and delta-v
@@ -61,8 +65,8 @@ npm run dev        # http://localhost:5183
 To check it:
 
 ```
-npm run verify     # typecheck + lint + 595 unit tests + build
-npm run test:e2e   # 41 Playwright tests against the real app
+npm run verify     # typecheck + lint + 602 unit tests + build
+npm run test:e2e   # 47 Playwright tests against the real app
 ```
 
 ## Stack
@@ -79,8 +83,8 @@ convention, so the boundary cannot quietly erode (ADR-0001).
 | Command             | What it does                               |
 | ------------------- | ------------------------------------------ |
 | `npm run dev`       | Vite dev server on http://localhost:5183   |
-| `npm test`          | unit tests (595)                           |
-| `npm run test:e2e`  | Playwright end-to-end tests (41)           |
+| `npm test`          | unit tests (602)                           |
+| `npm run test:e2e`  | Playwright end-to-end tests (47)           |
 | `npm run typecheck` | `tsc` with strict settings                 |
 | `npm run lint`      | ESLint, including the core-purity boundary |
 | `npm run build`     | typecheck + production build               |

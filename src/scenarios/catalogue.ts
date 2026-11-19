@@ -211,6 +211,69 @@ const RAW: readonly Scenario[] = [
       maneuvers: [],
     },
   },
+  {
+    schemaVersion: SCENARIO_SCHEMA_VERSION,
+    id: 'lunar-free-return',
+    name: 'Lunar free return',
+    description:
+      'One 3,115 m/s burn from a 300 km park, around the far side of the Moon, and back to Earth with no second burn.',
+    // The Earth-Moon epoch, because the geometry below was measured against it: the Moon's
+    // phase at this instant is what makes a single prograde burn return the craft to Earth.
+    // Moving the epoch by a day changes the encounter completely, which is the point of the
+    // scenario rather than a defect in it.
+    epochUtc: '2027-04-07T12:00:00Z',
+    startWarp: 1e4,
+    focus: 'earth',
+    view: {
+      radialMode: 'linear',
+      azimuthRad: 1.9,
+      elevationRad: 0.35,
+      distanceUnits: 60,
+      centeredOn: 'focus',
+    },
+    mission: {
+      id: 'free-return-craft',
+      name: 'Free-return vehicle',
+      centralBody: 'earth',
+      // 5 degrees, not the 51.6 a launch site gives. The Moon's orbit is near the ecliptic and
+      // this physics frame is ecliptic-referenced (PHYSICS.md 10.4), so a park near the ecliptic
+      // is what lets a purely prograde burn reach a lunar flyby: at 51.6 degrees the same burn
+      // misses by 240,580 km of lunar altitude, at 28.6 degrees by 133,803 km. It is tuned, not
+      // merely "small" - at 0 degrees it misses by 26,319 km, because a perfectly ecliptic park
+      // never leaves the plane the Moon has already drifted out of.
+      orbit: {
+        altitudeM: 300e3,
+        inclinationRad: (5 * Math.PI) / 180,
+        phaseRad: (255 * Math.PI) / 180,
+      },
+      // 3,115 m/s is the measured single-burn solution. The return is a knife-edge, and the
+      // numbers are worth stating because they are the lesson: 20 m/s low misses the Moon by
+      // 23,157 km of altitude and 20 m/s high by 24,459 km, against 2,694 km on the solution.
+      // Ten m/s low (3,105) is not a miss at all, it is an impact. A free return is a
+      // trajectory you have to hit, not one you can approximate.
+      deltaVBudget: 3300,
+      // N-body, because a two-body Earth propagation cannot bend around the Moon at all. The
+      // Moon is the whole mechanism: with it disabled the path is a plain ellipse that never
+      // comes back. `tests/scenario.test.ts` asserts that difference.
+      propagation: 'nbody',
+      // 9 days covers the 3.27-day outbound leg, the flyby and the 6.36-day return with margin,
+      // so the panel shows the craft home rather than still inbound.
+      horizonSeconds: 9 * 86400,
+      maneuvers: [
+        {
+          id: 'tli',
+          timeSeconds: 0,
+          // Prograde in the parking orbit's own frame. Hand-computing inertial components would
+          // duplicate `circularOrbitFrame`, which D-020 exists to prevent.
+          a: 3115,
+          b: 0,
+          c: 0,
+          frame: 'local',
+          label: 'Translunar injection 3.12 km/s',
+        },
+      ],
+    },
+  },
 ];
 
 export const SCENARIOS: readonly Scenario[] = RAW.map((s) =>

@@ -1054,6 +1054,144 @@ Two of those spans are worth reading as physics rather than as numbers:
 - `leo-raise` spans 670.5°, more than a full revolution, because a 3.2 h plan at 550 km laps the
   Earth and the track overlaps itself.
 - `earth-mars-departure` spans 337.3° in a 90-minute park. That is 360° of inertial travel minus
-  the 22.5° the Earth rotates underneath in the same time — the ground track of one orbit is
+  the 22.5° the Earth rotates underneath in the same time - the ground track of one orbit is
   always short of a full turn by the rotation rate times the period. It is still flagged as
   partial coverage because the map needs a full 360° to close, and one pass does not.
+
+## 14. The lunar free return
+
+One burn, one loop around the far side of the Moon, home with no second burn. It is the scenario
+that needs the Moon, and the first one in the catalogue that needs N-body integration to be a
+scenario at all.
+
+### 14.1 The burn, re-derived from vis-viva
+
+A prograde impulse from the 300 km circular park is a two-body problem up to the point the Moon
+matters, so the resulting orbit can be predicted, not merely propagated:
+
+    v_circ = sqrt(mu_earth / r1),  r1 = R_earth + 300 km = 6,671 km
+    v_after = v_circ + 3,115 m/s
+    a = -mu / (2 (v_after²/2 - mu/r1))
+    apogee = 2a - r1
+
+| Quantity       | Value        |
+| -------------- | ------------ |
+| `v_circ`       | 7,729.9 m/s  |
+| `v_after`      | 10,844.9 m/s |
+| Semi-major `a` | 210,813 km   |
+| Apogee         | 414,955 km   |
+| Period         | 11.15 d      |
+
+414,955 km from the Earth's centre clears the Moon's mean orbit of 384,400 km. The important
+number is the _half_ period, 5.57 days: that is when an unperturbed craft would reach apogee, and
+it is nearly twice the 3.27 days the real trajectory takes to reach the Moon. The craft is still
+climbing when it meets the Moon, which is what makes the encounter a flyby rather than an arrival.
+`tests/scenario.test.ts` asserts the apogee clears 384,400 km, and it is the first check that
+would fail if the burn in the catalogue were edited to something that no longer reaches the Moon.
+
+### 14.2 What actually happens, propagated
+
+Measured with the scenario's own spec, 9-day horizon, all bodies (345 ms to build the plan):
+
+| Event            | Time   | From the Moon's centre | Altitude |
+| ---------------- | ------ | ---------------------- | -------- |
+| Translunar burn  | T+0    | —                      | 300 km   |
+| Lunar flyby      | T+3.27 | 4,431 km               | 2,694 km |
+| Closest to Earth | T+6.36 | —                      | 686 km   |
+
+The trajectory: outbound for 3.27 days, closest approach on the far side of the Moon, then a
+return leg that reaches 686 km over the Earth at 6.36 days, still inside the horizon.
+
+**The Moon is what turns the path around, and the numbers say so.** The unperturbed ellipse from
+§14.1 would reach 414,955 km at 5.57 days. The real trajectory peaks at **373,475 km at 3.26
+days** — 41,480 km _lower_, and 2.3 days _earlier_. At that instant the Moon's own geocentric
+distance is 369,049 km, so the craft is 4,426 km farther from the Earth than the Moon is, and the
+offset is almost entirely radial (4,425 km radial, 224 km transverse across 4,431 km of miss
+distance). It passes on the outside of the Moon's orbit, which is the geometry of a far-side
+flyby. The Moon absorbs the last 41,480 km of the climb and redirects it into the return.
+
+With only `earth` and `sun` enabled, the same burn is the unperturbed ellipse: max geocentric
+distance 415,412 km at 5.58 days, matching §14.1's 414,955 km at 5.57 days to 0.1% (the residual
+being the Sun). The period is 11.15 days, so the horizon ends at 9 days with the craft 308,380 km
+from the Earth and still inbound — no return. **The approach distance barely changes** (4,672 km
+of lunar altitude against 2,694 km) because the burn is aimed at the Moon's position; only the
+return distinguishes the two cases. This is D-036's trap, and it is why the no-Moon test asserts
+the return ratio rather than the miss distance.
+
+### 14.3 Sample convergence
+
+The flyby is the one place in this project where a chaotic encounter could make a measurement
+meaningless. It does not:
+
+| Samples | Lunar periapsis (from centre) | Return (from centre) | Return altitude | Final, T+9 d |
+| ------- | ----------------------------- | -------------------- | --------------- | ------------ |
+| 600     | 4,460 km                      | 7,241 km             | 870 km          | 344,546 km   |
+| 1,000   | 4,432 km                      | 7,318 km             | 947 km          | 344,544 km   |
+| 1,400   | 4,429 km                      | 7,035 km             | 664 km          | 344,550 km   |
+| 2,000   | 4,432 km                      | 7,071 km             | 700 km          | 344,549 km   |
+| 3,000   | 4,432 km                      | 7,022 km             | 651 km          | 344,550 km   |
+| 4,000   | 4,431 km                      | 7,045 km             | 674 km          | 344,553 km   |
+
+Lunar periapsis varies by 31 km in 4,431 (0.7%) and the end state agrees to five significant
+figures (344,544-344,553 km). The _return_ altitude wanders by 296 km, from 651 to 947, because it
+is a near-grazing pass sampled once per 86 s at 600 samples and once per 13 s at 4,000 — a
+periapsis-shaped quantity is always the worst-sampled thing on a discrete grid, and the return leg
+is sampled from the same grid as the whole nine days.
+
+This convergence check exists because an _intermediate_ run during development reported a 7,213 km
+return where a 4,000-sample run gave 45,552 km — a real disagreement, caused by comparing runs
+with different sample counts. Any change to the burn, the epoch or the inclination must re-run
+this table, not just the test.
+
+### 14.4 Sensitivity: this is a knife-edge, and that is the lesson
+
+All rows from a single all-bodies run at the scenario's default sample count:
+
+| Burn      | Lunar altitude | Return altitude         | Outcome                    |
+| --------- | -------------- | ----------------------- | -------------------------- |
+| 3,075     | 83,024 km      | −1,380 km               | misses, impacts Earth      |
+| 3,095     | 23,157 km      | 283,388 km (never home) | misses                     |
+| 3,105     | 2,801 km       | 359,995 km (never home) | passes the Moon, no return |
+| 3,110     | −1,227 km      | —                       | impacts the Moon           |
+| **3,115** | **2,694 km**   | **686 km at T+6.36**    | **free return**            |
+| 3,120     | 8,980 km       | −5,746 km               | misses, impacts Earth      |
+| 3,125     | 14,792 km      | 87,766 km (never home)  | misses                     |
+| 3,135     | 24,459 km      | 375,808 km (never home) | misses                     |
+| 3,155     | 37,628 km      | 392,456 km (never home) | misses                     |
+
+±20 m/s — 0.64% of the burn — costs the flyby entirely. There is no gradual failure mode: the
+outcomes are "impacts the Moon", "impacts the Earth", or "does not come home", and the free return
+sits alone between them. That is exactly why Apollo's free-return trajectory was designed as a
+family rather than a line, and why this scenario states its solution rather than inviting the user
+to find one.
+
+Two further parameters are equally sharp, and both are measured rather than assumed:
+
+| Parking inclination | Lunar altitude |
+| ------------------- | -------------- |
+| 0°                  | 26,319 km      |
+| **5°**              | **2,694 km**   |
+| 10°                 | 24,938 km      |
+| 28.6°               | 133,803 km     |
+| 51.6°               | 240,580 km     |
+
+The 5° is tuned, not "near the ecliptic": a perfectly ecliptic park misses because the Moon's
+orbit is inclined 5.1° to the ecliptic and has drifted out of the plane the craft stays in. And the
+epoch is a parameter in the same sense — the Moon's phase at `2027-04-07T12:00:00Z` is what makes
+one prograde burn work, so the scenario is pinned to it (D-036).
+
+### 14.5 What the scenario does not do
+
+- It does not solve for a free return. It replays a measured one. A runtime solver (shooting on
+  lunar periapsis and Earth-return altitude) is real work and is not in v1.0.0.
+- It does not model the Moon's sphere of influence as a patched conic; the flyby is integrated
+  through it with the restricted N-body acceleration, which is why the miss distance is 4,431 km
+  rather than a conic section.
+- **Impact detection only covers the central body.** `propagateTrajectory` sets `impacts` by
+  comparing the path against `BODIES[centralBody].radius`, so a lunar impact (3,110 m/s, 1,227 km
+  below the Moon's surface) is not flagged — the craft simply passes through the Moon. Earth
+  impacts are flagged (3,075 and 3,120 m/s both are). This is a known limitation, asserted in
+  §14.4's table as a number rather than shown as a warning in the app.
+- It does not include the Earth's oblateness, the Sun's tides beyond point-mass gravity, or
+  station-keeping. At 686 km on return the craft would need a burn in reality; the scenario's
+  claim is trajectory-shaped, not mission-shaped.

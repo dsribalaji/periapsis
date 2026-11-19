@@ -7,10 +7,14 @@ import {
 } from '../src/scenarios/catalogue.js';
 import { validateScenario, assertScenario } from '../src/scenarios/validate.js';
 import { SCENARIO_SCHEMA_VERSION } from '../src/scenarios/types.js';
-import { jdFromIsoUtc } from '../src/core/time/time.js';
-import { BODIES } from '../src/core/ephemeris/solarSystem.js';
+import { jdFromIsoUtc, jdTtFromJdUtc } from '../src/core/time/time.js';
+import { BODIES, type BodyId } from '../src/core/ephemeris/solarSystem.js';
 import { WARP_STEPS } from '../src/sim/clock.js';
 import { hohmannTransfer } from '../src/core/transfer/transfers.js';
+import { SECONDS_PER_DAY } from '../src/core/constants.js';
+import { bodyPosition } from '../src/core/ephemeris/ephemeris.js';
+import { craftFromSpec } from '../src/sim/craft.js';
+import { propagateTrajectory, type PropagationMode } from '../src/sim/trajectory.js';
 
 const valid = {
   schemaVersion: SCENARIO_SCHEMA_VERSION,
@@ -397,5 +401,165 @@ describe('assertScenario', () => {
   it('throws with the offending paths in the message', () => {
     expect(() => assertScenario(withChange({ id: '' }), 'test scenario')).toThrow(/id/);
     expect(() => assertScenario(withChange({ id: '' }), 'test scenario')).toThrow(/test scenario/);
+  });
+});
+
+describe('the free-return scenario', () => {
+  const scenario = () => scenarioById('lunar-free-return')!;
+  const mission = () => scenario().mission!;
+
+  /** Propagates the scenario's own mission and reports what actually happened. */
+  function fly(options: { bodies?: readonly BodyId[]; propagation?: PropagationMode } = {}) {
+    const spec = mission();
+    const epochJdTt = jdTtFromJdUtc(jdFromIsoUtc(scenario().epochUtc));
+    const craft = craftFromSpec(spec);
+    const trajectory = propagateTrajectory(craft, {
+      horizonSeconds: spec.horizonSeconds,
+      mode: options.propagation ?? spec.propagation,
+      epochJdTt,
+      enabledBodies: options.bodies,
+    });
+
+    let minMoonM = Infinity;
+    let minMoonAtDays = 0;
+    for (const p of trajectory.points) {
+      const moon = bodyPosition('moon', epochJdTt + p.timeSeconds / SECONDS_PER_DAY);
+      const d = Math.hypot(p.r.x - moon.x, p.r.y - moon.y, p.r.z - moon.z);
+      if (d < minMoonM) {
+        minMoonM = d;
+        minMoonAtDays = p.timeSeconds / SECONDS_PER_DAY;
+      }
+    }
+
+    // The return leg is everything after the flyby: a free return means the craft comes back
+    // towards Earth *after* the Moon, not merely that it was once close.
+    let minEarthAfterM = Infinity;
+    let minEarthAfterDays = 0;
+    for (const p of trajectory.points) {
+      if (p.timeSeconds / SECONDS_PER_DAY <= minMoonAtDays) continue;
+      const earth = bodyPosition('earth', epochJdTt + p.timeSeconds / SECONDS_PER_DAY);
+      const d = Math.hypot(p.r.x - earth.x, p.r.y - earth.y, p.r.z - earth.z);
+      if (d < minEarthAfterM) {
+        minEarthAfterM = d;
+        minEarthAfterDays = p.timeSeconds / SECONDS_PER_DAY;
+      }
+    }
+
+    return { trajectory, minMoonM, minMoonAtDays, minEarthAfterM, minEarthAfterDays };
+  }
+
+  it('is one prograde burn and nothing else', () => {
+    // A free return's whole claim is that the Moon turns the craft around, so any second burn
+    // would be a different scenario wearing this one's name.
+    const m = mission();
+    expect(m.maneuvers).toHaveLength(1);
+    const node = m.maneuvers[0]!;
+    expect(node.frame).toBe('local');
+    expect(node.timeSeconds).toBe(0);
+    expect(node.b).toBe(0);
+    expect(node.c).toBe(0);
+    expect(node.a).toBeGreaterThan(3000);
+    expect(node.a).toBeLessThan(3300);
+  });
+
+  it('is an N-body plan, because a two-body Earth orbit cannot bend around the Moon', () => {
+    expect(mission().propagation).toBe('nbody');
+  });
+
+  it('the burn leaves a park whose apogee reaches lunar distance', () => {
+    // Re-derived, not asserted from the file: the burn is a prograde impulse from a circular
+    // 300 km orbit, so vis-viva gives the resulting apogee. If the number in the scenario stops
+    // reaching the Moon, the scenario is a lie even though it still loads and still draws.
+    const m = mission();
+    const mu = BODIES.earth.mu;
+    const r1 = BODIES.earth.radius + m.orbit.altitudeM;
+    const vCircular = Math.sqrt(mu / r1);
+    const speedAfter = vCircular + m.maneuvers[0]!.a;
+    const specificEnergy = (speedAfter * speedAfter) / 2 - mu / r1;
+    const semiMajor = -mu / (2 * specificEnergy);
+    const apogee = 2 * semiMajor - r1;
+
+    // The Moon's mean distance is 384,400 km; the craft must at least reach it, and the burn
+    // is measured so the encounter is a flyby rather than a distant pass.
+    expect(apogee).toBeGreaterThan(384_400e3);
+    expect(apogee).toBeLessThan(700_000e3);
+  });
+
+  it('actually flies past the Moon and comes back to Earth', () => {
+    const { minMoonM, minMoonAtDays, minEarthAfterM, minEarthAfterDays } = fly();
+    const moonAltitudeKm = (minMoonM - BODIES.moon.radius) / 1000;
+    const returnAltitudeKm = (minEarthAfterM - BODIES.earth.radius) / 1000;
+
+    // A flyby, not an impact: clear of the surface by a wide margin.
+    expect(moonAltitudeKm).toBeGreaterThan(500);
+    expect(moonAltitudeKm).toBeLessThan(6000);
+    // And home: back to roughly the altitude it left from, which is what "free return" means.
+    expect(returnAltitudeKm).toBeGreaterThan(0);
+    expect(returnAltitudeKm).toBeLessThan(2000);
+    // The encounter is outbound and the return is later, so this is one loop and not a tangent.
+    expect(minMoonAtDays).toBeGreaterThan(2);
+    expect(minEarthAfterDays).toBeGreaterThan(minMoonAtDays + 1);
+  });
+
+  it('does not come home when the Moon is removed, so the Moon is the mechanism', () => {
+    // The mutation that proves the test above is about the Moon rather than about Earth's
+    // gravity. Note what this does *not* assert: the unperturbed path still passes close to the
+    // Moon's position, because the burn is aimed there — measured 4,672 km of lunar altitude
+    // against 2,694 km with the Moon present. Distance alone cannot separate the two cases.
+    // What separates them is the return. Without the Moon the burn produces a closed ellipse
+    // with a = 201,300 km and a 10.4-day period, so even at the end of this 9-day horizon the
+    // craft is still 308,380 km from the Earth (302,009 km of altitude); with the Moon it is
+    // 7,057 km out at 6.36 days, which is 337 km of altitude.
+    const withMoon = fly();
+    const withoutMoon = fly({ bodies: ['earth', 'sun'] });
+
+    expect(withoutMoon.minEarthAfterM).toBeGreaterThan(100_000e3);
+    // 43.7x measured. Stated as a ratio rather than as "it comes back" because a ratio of this
+    // size cannot be produced by integration error; only a missing body produces it.
+    expect(withoutMoon.minEarthAfterM).toBeGreaterThan(20 * withMoon.minEarthAfterM);
+  });
+
+  it('shows the whole return leg inside its horizon', () => {
+    // The horizon is not decoration: if it ended at the flyby the panel would never show the
+    // point of the scenario. The craft is home at 6.36 days, inside the 9-day plan.
+    const { minEarthAfterDays, minEarthAfterM } = fly();
+    expect(minEarthAfterDays).toBeLessThan(mission().horizonSeconds / SECONDS_PER_DAY);
+    expect(minEarthAfterM).toBeLessThan(10_000e3);
+  });
+
+  it('is sensitive to the burn, which is the lesson the scenario teaches', () => {
+    // A free return is a knife-edge. Asserting the sensitivity rather than hiding it is what
+    // lets the scenario description say the solution is narrow and mean it.
+    const m = mission();
+    const epochJdTt = jdTtFromJdUtc(jdFromIsoUtc(scenario().epochUtc));
+
+    const closestFor = (deltaV: number): number => {
+      const patched: typeof m = {
+        ...m,
+        maneuvers: [{ ...m.maneuvers[0]!, a: deltaV }],
+      };
+      const trajectory = propagateTrajectory(craftFromSpec(patched), {
+        horizonSeconds: m.horizonSeconds,
+        mode: 'nbody',
+        epochJdTt,
+      });
+      let best = Infinity;
+      for (const p of trajectory.points) {
+        const moon = bodyPosition('moon', epochJdTt + p.timeSeconds / SECONDS_PER_DAY);
+        best = Math.min(best, Math.hypot(p.r.x - moon.x, p.r.y - moon.y, p.r.z - moon.z));
+      }
+      return best;
+    };
+
+    const nominal = closestFor(m.maneuvers[0]!.a);
+    const low = closestFor(m.maneuvers[0]!.a - 20);
+    const high = closestFor(m.maneuvers[0]!.a + 20);
+    // Measured: the nominal flyby closes to 4,424 km from the Moon's centre (2,694 km of
+    // altitude); 20 m/s low misses at 23,157 km of altitude and 20 m/s high at 24,459 km.
+    // Twenty metres per second is 0.64% of the burn and it costs the flyby entirely, so the
+    // claim asserted here is "there is no flyby left", not "it is a bit worse".
+    expect(nominal).toBeLessThan(5_000e3);
+    expect(low).toBeGreaterThan(20_000e3);
+    expect(high).toBeGreaterThan(20_000e3);
   });
 });

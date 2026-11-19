@@ -112,14 +112,14 @@ delete one. Those items stay unticked rather than being checked off on the stren
 
 ## M6 — Ground track and Moon
 
-- [ ] M6.1 Inertial -> Earth-fixed lat/lon via GMST rotation
-      — `core/groundTrack/groundTrack.ts`, 20 unit tests. Three frames in order:
+- [x] M6.1 Inertial -> Earth-fixed lat/lon via GMST rotation - `core/groundTrack/groundTrack.ts`, 20 unit tests. Three frames in order:
       heliocentric → Earth-relative **at each sample's own time**, → equatorial (obliquity
       23.44°, closing the PHYSICS.md §10.4 deferral), → Earth-fixed (GMST). Emits geocentric
       latitude, east longitude, altitude, and an `crossesAntimeridian` break per segment so a
       renderer never draws a line across the map. Mutation-tested: removing the obliquity
       rotation fails 8/20, freezing the epoch-relative origin fails 7/20. PHYSICS.md §13.
-      The panel that draws it is M6.2, which is what keeps this box unticked.
+      The panel that draws it is M6.2, which was the reason this box stayed unticked; both are
+      now done.
 - [x] M6.2 2D equirectangular ground-track panel with graticule
       — `ui/groundTrackView.ts` (projection, polyline splitting, marker interpolation, summary,
       Bresenham image buffer) and `ui/GroundTrackPanel.tsx` (canvas, marker, readouts, caveats),
@@ -133,7 +133,17 @@ delete one. Those items stay unticked rather than being checked off on the stren
       than letting the renderer infer gaps from sample spacing, and the map/panel altitude gap is
       bounded by one chord sagitta, 3,642 m measured against 3,526 m predicted (D-035).
       PHYSICS.md §13.5.
-- [ ] M6.3 Free-return scenario
+- [x] M6.3 Free-return scenario - `lunar-free-return` in `scenarios/catalogue.ts`: one prograde 3,115 m/s node at T+0 from
+      a 300 km, 5° park (phase 255°) at the Earth-Moon epoch, propagated N-body over 9 days.
+      Measured with all bodies: lunar flyby at 2,694 km of altitude at T+3.27 d, return to 686 km
+      at T+6.36 d, plan built in 345 ms. Re-derived and asserted in `tests/scenario.test.ts` (8
+      tests) and `e2e/shell.spec.ts` (6 tests). Three findings, all recorded: the epoch is
+      load-bearing (the Moon's phase is what makes one burn return), the 5° inclination is tuned
+      rather than "near the ecliptic" (0° misses by 26,319 km, 28.6° by 133,803 km), and the
+      burn is a knife-edge (±20 m/s costs the flyby entirely, with impacts on either side). The
+      no-Moon test had to assert the return ratio rather than the miss distance, because the
+      unperturbed ellipse is aimed at the Moon's position anyway (4,672 km of altitude against
+      2,694 km). D-036, PHYSICS.md §14.
 
 ## M7 — Scenarios and polish
 

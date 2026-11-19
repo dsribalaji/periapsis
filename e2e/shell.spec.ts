@@ -839,3 +839,108 @@ test.describe('the ground-track panel', () => {
     await expect(note).toContainText('revolutions of longitude');
   });
 });
+
+test.describe('the lunar free-return scenario', () => {
+  test('loads with one translunar burn and no second node', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('lunar-free-return');
+
+    const nodes = page.getByTestId('mission-nodes').locator('.node-row');
+    await expect(nodes).toHaveCount(1);
+    await expect(nodes.nth(0)).toContainText('Translunar injection');
+    // 3,115 m/s of a 3,300 m/s budget: the whole scenario is inside one budget line.
+    await expect(page.getByTestId('mission-planned')).toHaveText('3115.0 m/s');
+    await expect(page.getByTestId('mission-remaining')).toHaveText('185.0 m/s');
+  });
+
+  test('the burn is applied at once, because it is at T+0', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('lunar-free-return');
+    // Unlike the LEO scenario, there is nothing to wait for: the clock starts where the burn is,
+    // so the whole burn is already spent on load.
+    await expect(page.getByTestId('mission-nodes').locator('.node-row').first()).toHaveClass(
+      /applied/,
+    );
+    await expect(page.getByTestId('mission-spent')).toHaveText('3115.0 m/s');
+  });
+
+  test('the plan reaches lunar distance and returns inside its own horizon', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('lunar-free-return');
+
+    // Both extremes are recomputed from the propagated path, so this is one propagation
+    // answering two questions rather than two independent numbers.
+    const apoapsis = Number.parseFloat(
+      ((await page.getByTestId('mission-apoapsis').textContent()) ?? '').replace(' km', ''),
+    );
+    const periapsis = Number.parseFloat(
+      ((await page.getByTestId('mission-periapsis').textContent()) ?? '').replace(' km', ''),
+    );
+
+    // Furthest point 373,475 km from the Earth's centre: a lunar flyby, and the reason the burn
+    // has to be 3.1 km/s rather than the 3.2 a Mars-sized departure would take.
+    expect(apoapsis).toBeGreaterThan(350_000);
+    expect(apoapsis).toBeLessThan(450_000);
+    // The closest approach in the whole plan is the parking orbit itself at 6,671 km, because
+    // the return leg only gets back to 7,057 km at 6.36 days. So this asserts that the craft
+    // ends up back in low Earth orbit rather than merely that it left.
+    expect(periapsis).toBeGreaterThan(6_000);
+    expect(periapsis).toBeLessThan(8_000);
+  });
+
+  test('is not flagged as aliased, because nine days are sampled densely enough', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('lunar-free-return');
+    // The horizon is 140x the parking period, so this is the scenario that *could* have been
+    // aliased and is the check that the density heuristic scales with the plan rather than with
+    // the orbit.
+    await expect(page.getByTestId('mission-aliased')).toHaveCount(0);
+  });
+
+  test('draws a ground track with the craft climbing away from the Earth', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('lunar-free-return');
+    const alt = page.getByTestId('ground-track-alt');
+    await alt.scrollIntoViewIfNeeded();
+
+    const readKm = async (): Promise<number> =>
+      Number.parseFloat(((await alt.textContent()) ?? '').replace(' km', ''));
+
+    // The scenario opens running at 10k warp, so by the time the panel is on screen the craft
+    // is already hours out. Pausing first is what makes the reading a fixed number at all.
+    await page.getByRole('button', { name: 'Pause' }).click();
+    const parked = await readKm();
+    expect(Number.isFinite(parked)).toBe(true);
+
+    // The map is drawn from the whole plan, so its track already spans the departure even
+    // though the marker sits at the current instant.
+    await expect(page.getByTestId('ground-track-canvas')).toBeVisible();
+    const samples = Number.parseInt(
+      ((await page.getByTestId('ground-track-samples').textContent()) ?? '0').trim(),
+      10,
+    );
+    expect(samples).toBeGreaterThan(1_000);
+
+    // Resume at the scenario's own 10k warp, which covers about 3.5 simulated days in the 30 s
+    // this poll allows. Not the largest warp: at 10M the clock leaves the 9-day horizon in
+    // 0.08 s and the readout correctly becomes "--", which would measure the horizon rather
+    // than the climb.
+    await page.getByRole('button', { name: '10k', exact: true }).click();
+    await expect
+      .poll(readKm, { timeout: 30_000, message: 'altitude should climb after the burn' })
+      .toBeGreaterThan(parked + 1_000);
+  });
+
+  test('is absent from a system view but present for its own scenario', async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('Scenario').selectOption('lunar-free-return');
+    await expect(page.getByTestId('mission')).toBeVisible();
+    await expect(page.getByTestId('ground-track')).toBeVisible();
+    // The ground track is Earth-only by design (D-004), and this mission is Earth-departing, so
+    // it has one; a transition to a lunar-centred track is not drawn rather than mis-projected.
+    await page.getByLabel('Scenario').selectOption('earth-moon');
+    await expect(page.getByTestId('ground-track')).toHaveCount(0);
+  });
+});

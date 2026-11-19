@@ -452,3 +452,45 @@ drawing the 3D path as a dense arc, and both are worse than a stated 3.6 km. The
 worth a decision rather than a comment is that the difference _looks_ like the D-032 class of
 frame bug, and the test has to be able to tell them apart: D-032 was 343,390 km, this is 3,642 m,
 and it shrinks with sample spacing rather than with a code change.
+
+## D-036 - The free-return scenario is measured, epoch-locked, and RNG-free
+
+**Choice:** `lunar-free-return` is one prograde 3,115 m/s node at T+0 on a 300 km, 5° park with
+phase 255°, propagated N-body over a 9-day horizon at the Earth-Moon epoch
+`2027-04-07T12:00:00Z`. It produces a lunar flyby at 2,694 km of altitude at T+3.27 d and a
+return to 337 km at T+6.36 d.
+**Alternatives:** solve the free return at runtime from a target lunar periapsis (a real shooting
+method, and the honest general answer); ship it as a two-body Earth ellipse that merely reaches
+lunar distance (it would load, draw, and be wrong); let the user aim it from the porkchop.
+**Why:** the numbers are _measured_, every one of them, and re-derived where they can be. The burn
+is checked against vis-viva (the resulting apogee must clear the Moon), the flyby and return are
+propagated from the scenario's own spec, and the sensitivity is asserted rather than described.
+Three properties make this scenario unusual enough to be worth a decision:
+
+- **The epoch is load-bearing.** The Moon's phase at the epoch is what makes a single prograde
+  burn return the craft. Moving the epoch a day moves the encounter entirely. That is not a defect
+  to be fixed with a search — it is the physics of a free return, and it is why the scenario is
+  pinned to the same epoch as `earth-moon` rather than a round number.
+- **The inclination is tuned, not merely small.** 5° works; 0° misses by 26,319 km of altitude,
+  10° by 24,938 km, 28.6° by 133,803 km and 51.6° by 240,580 km. A perfectly ecliptic park never
+  leaves the plane the Moon has already drifted out of, so "near the ecliptic" is not the rule —
+  the number is. Recorded because the first draft of the comment claimed "near the ecliptic" and
+  a measurement said otherwise.
+- **No random search, no seed.** The scenario is a constant, so it needs no RNG and the physics
+  core stays free of `Math.random`. The alternative (a runtime free-return solver) is real work
+  and belongs in a later milestone, not smuggled into a scenario.
+
+The sample convergence is what makes the measured numbers trustworthy rather than an artefact of
+where the integrator happened to look: 600, 1,000, 1,400, 2,000, 3,000 and 4,000 samples give a
+lunar periapsis of 4,423-4,454 km from the Moon's centre and a final geocentric distance identical
+to five significant figures (344,670-344,675 km at 9 days). A chaotic flyby would wander; this one
+does not. PHYSICS.md §14.
+
+The test that proves the Moon is the mechanism had to be rewritten once, and the reason is worth
+recording because it is the trap this scenario sets. Removing the Moon does **not** stop the craft
+passing near the Moon's position — the burn is aimed there, so the unperturbed ellipse closes to
+4,672 km of lunar altitude against 2,694 km with the Moon present. Distance cannot separate the two
+cases. What separates them is the return: without the Moon the burn is a closed 201,300 km ellipse
+with a 10.4-day period, so at the end of the 9-day horizon the craft is still 308,380 km out,
+against 7,057 km at 6.36 days. The test asserts that ratio (43.7× measured, bounded at 20×), not
+the approach distance.
